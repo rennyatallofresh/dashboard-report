@@ -2,6 +2,9 @@
 node_modules/
 out/
 dist/
+.vite/
+tsconfig.tsbuildinfo
+vite-dev.log
 .vercel/
 
 *.log

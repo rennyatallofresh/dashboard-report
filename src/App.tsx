@@ -1,5 +1,3 @@
-"use client";
-
 import {
   Activity,
   ArrowDownLeft,
@@ -44,6 +42,8 @@ type DashboardResponse = {
 };
 
 const moneyColors = ["#10b981", "#2563eb", "#f59e0b", "#f43f5e", "#7c3aed"];
+const SCRIPT_URL =
+  "https://script.google.com/macros/s/AKfycbwe9ryGJfhxLLaCKhqzv_M-B7RpMY5fGqKBlBHaGqde8r09CffJrgEZJJJYThRgW-Y/exec";
 
 function countBy(rows: AnyRow[], key: string) {
   return rows.reduce<Record<string, number>>((acc, row) => {
@@ -189,9 +189,16 @@ export default function Page() {
   async function loadDashboard(force = false) {
     force ? setSyncing(true) : setLoading(true);
     try {
-      const response = await fetch(`/api/dashboard?force=${force}`, { cache: "no-store" });
+      const response = await fetch(`${SCRIPT_URL}?api=data&force=${force}`, { cache: "no-store" });
       const json = await response.json();
-      setPayload(json);
+      setPayload({ ...json, source: "apps-script" });
+    } catch (error) {
+      setPayload({
+        status: "error",
+        source: "unavailable",
+        errors: [error instanceof Error ? error.message : "Gagal memuat data dashboard."],
+        data: { inbound: [], outbound: [] }
+      });
     } finally {
       setLoading(false);
       setSyncing(false);
