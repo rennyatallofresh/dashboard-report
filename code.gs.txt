@@ -1,5 +1,5 @@
 /**
- * GOOGLE APPS SCRIPT - MODULAR ROUTER & HIGH-PERFORMANCE CACHE ENGINE (V14 - PRODUCTION FINAL SAFE)
+ * GOOGLE APPS SCRIPT - API-ONLY CACHE ENGINE (V15)
  * Tempelkan script ini pada Extensions > Apps Script di dalam Google Sheets "CS API Sources" atau "GSheet Engine"
  * Folder ID Cache GDrive: 1_yt3H1FWxgbWQ7ekgZIu7WmuxE5KOrMm
  */
@@ -30,46 +30,51 @@ function Mulai_Sinkronisasi_Manual() {
 }
 
 /**
- * Routing Handler Utama - Menampilkan halaman HTML sesuai parameter page.
- * Dilengkapi dengan Server-to-Client Parameter Injection untuk melewati proteksi iframe sandbox GDrive.
+ * API handler utama.
+ * Endpoint:
+ * - /exec atau /exec?api=data          Mengambil cache gabungan inbound + outbound
+ * - /exec?api=data&force=true         Rebuild cache dari source GSheet lalu return data terbaru
+ * - /exec?api=health                  Cek status API ringan
  */
 function doGet(e) {
-  if (e && e.parameter && e.parameter.api === "data") {
-    var force = e.parameter.force === "true";
-    return ContentService.createTextOutput(JSON.stringify(getInternalData(force)))
-                         .setMimeType(ContentService.MimeType.JSON);
-  }
-
-  var pageParam = (e && e.parameter && e.parameter.page) ? e.parameter.page.toString().toLowerCase() : "index";
-  var templateName = pageParam === "outbound" ? "outbound" : "inbound";
-  
   try {
-    var template = HtmlService.createTemplateFromFile(templateName);
-    
-    // Mendapatkan URL Web App secara dinamis
-    var webAppUrl = "";
-    try {
-      webAppUrl = ScriptApp.getService().getUrl();
-    } catch(err) {
-      webAppUrl = "#";
+    var api = (e && e.parameter && e.parameter.api) ? e.parameter.api.toString().toLowerCase() : "data";
+    var force = e.parameter.force === "true";
+
+    if (api === "health") {
+      return jsonResponse({
+        status: "success",
+        service: "allofresh-cs-dashboard-api",
+        timestamp: new Date().toISOString()
+      });
     }
-    template.webAppUrl = webAppUrl;
 
-    template.page = pageParam;
-    
-    // Menyimpan semua query parameter cadangan dalam format JSON string jika dibutuhkan di masa mendatang
-    template.queryParams = JSON.stringify(e && e.parameter ? e.parameter : {});
+    if (api === "data") {
+      return jsonResponse(getInternalData(force));
+    }
 
-    return template.evaluate()
-      .setTitle("AlloFresh Customer Service Performance Hub")
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
-      .addMetaTag("viewport", "width=device-width, initial-scale=1.0");
+    return jsonResponse({
+      status: "error",
+      message: "Unknown API route: " + api,
+      supportedApis: ["data", "health"]
+    });
   } catch (error) {
-    return HtmlService.createHtmlOutput(
-      "<h3>Error Loading WebApp (" + templateName + "): " + error.toString() + "</h3>" +
-      "<p>Pastikan Anda memiliki file HTML bernama <b>" + templateName + "</b> di dalam proyek Apps Script Anda.</p>"
-    );
+    return jsonResponse({
+      status: "error",
+      message: error && error.message ? error.message : String(error),
+      timestamp: new Date().toISOString()
+    });
   }
+}
+
+function doPost(e) {
+  return doGet(e);
+}
+
+function jsonResponse(payload) {
+  return ContentService
+    .createTextOutput(JSON.stringify(payload))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 /**
