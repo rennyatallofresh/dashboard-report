@@ -43,7 +43,7 @@ type DashboardResponse = {
 
 const moneyColors = ["#10b981", "#2563eb", "#f59e0b", "#f43f5e", "#7c3aed"];
 const SCRIPT_URL =
-  "https://script.google.com/macros/s/AKfycbwe9ryGJfhxLLaCKhqzv_M-B7RpMY5fGqKBlBHaGqde8r09CffJrgEZJJJYThRgW-Y/exec";
+  "https://script.google.com/macros/s/AKfycbzLb8L3MX1RuWQVUDxlbb-3z_Pg6ySlJ4NPeq9-otvbDK5iYHPu7d2SzJwYos-n6Q/exec";
 
 function countBy(rows: AnyRow[], key: string) {
   return rows.reduce<Record<string, number>>((acc, row) => {
