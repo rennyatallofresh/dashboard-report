@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AlloFresh - Inbound Performance Hub</title>
+  
+  <!-- Tailwind CSS Framework -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js untuk visualisasi data -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght=300;400;500;600;700;800&display=swap');
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f8fafc;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 8px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col antialiased">
+
+  <!-- TOP NAVIGATION BAR -->
+  <header class="bg-white border-b border-slate-200/80 sticky top-0 z-40 backdrop-blur-md bg-white/95">
+    <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="bg-emerald-500 text-white p-2 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
+          <i data-lucide="arrow-down-left" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-extrabold tracking-tight text-slate-900">AlloFresh</h1>
+          <p class="text-[11px] font-semibold text-emerald-600 uppercase tracking-wider">Inbound Performance Hub</p>
+        </div>
+      </div>
+
+      <!-- Navigasi Halaman Spesifik & Sync -->
+      <div class="flex items-center space-x-4">
+        <div class="hidden md:flex flex-col text-right">
+          <p class="text-xs text-slate-400 font-medium">Terakhir Diperbarui</p>
+          <p id="last-update" class="text-sm font-bold text-slate-700">-</p>
+        </div>
+        
+        <div class="flex space-x-1 bg-slate-100 p-1 rounded-xl">
+          <a href="<?= typeof webAppUrl !== 'undefined' ? webAppUrl : '#' ?>?page=index" class="px-4 py-2 text-xs font-bold rounded-lg transition-all duration-200 bg-white text-slate-900 shadow-sm flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+            INBOUND
+          </a>
+          <a href="<?= typeof webAppUrl !== 'undefined' ? webAppUrl : '#' ?>?page=outbound" class="px-4 py-2 text-xs font-bold rounded-lg transition-all duration-200 text-slate-500 hover:text-slate-800 flex items-center gap-1.5">
+            OUTBOUND
+          </a>
+        </div>
+
+        <button id="btn-refresh" onclick="forceSyncData()" class="bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-emerald-500/15 transition-all">
+          <i id="icon-refresh" data-lucide="refresh-cw" class="w-4 h-4"></i>
+          <span>SYNC NOW</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- LOADING OVERLAY -->
+  <div id="loading-overlay" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex flex-col items-center justify-center z-50 transition-opacity duration-300">
+    <div class="bg-white p-8 rounded-3xl shadow-2xl flex flex-col items-center max-w-sm text-center mx-4 border border-slate-150">
+      <div class="relative w-16 h-16 mb-4">
+        <div class="absolute inset-0 border-4 border-emerald-100 rounded-full"></div>
+        <div class="absolute inset-0 border-4 border-emerald-500 rounded-full border-t-transparent animate-spin"></div>
+      </div>
+      <h3 class="text-lg font-bold text-slate-800 mb-1">Membaca Inbound Cache</h3>
+      <p class="text-xs text-slate-500 leading-relaxed">Mengekstraksi data volume tiket, performa FRT, dan CSAT langsung dari Google Drive Cache...</p>
+    </div>
+  </div>
+
+  <!-- MAIN CONTAINER -->
+  <main class="flex-1 max-w-[1600px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+    <!-- OVERVIEW INBOUND STATS (Custom IA) -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div class="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm flex items-center space-x-4">
+        <div class="p-3 bg-indigo-50 text-indigo-600 rounded-xl">
+          <i data-lucide="ticket" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Tiket Inbound</p>
+          <h2 id="stat-total-tickets" class="text-2xl font-extrabold text-slate-900">-</h2>
+        </div>
+      </div>
+      <div class="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm flex items-center space-x-4">
+        <div class="p-3 bg-amber-50 text-amber-600 rounded-xl">
+          <i data-lucide="clock" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Rerata FRT Agent</p>
+          <h2 id="stat-avg-frt" class="text-2xl font-extrabold text-slate-900">-</h2>
+        </div>
+      </div>
+      <div class="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm flex items-center space-x-4">
+        <div class="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
+          <i data-lucide="shield-check" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Pencapaian SLA FRT</p>
+          <h2 id="stat-sla-pct" class="text-2xl font-extrabold text-slate-900">-</h2>
+        </div>
+      </div>
+      <div class="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm flex items-center space-x-4">
+        <div class="p-3 bg-rose-50 text-rose-600 rounded-xl">
+          <i data-lucide="smile" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Kepuasan Pelanggan (CSAT)</p>
+          <h2 id="stat-csat-avg" class="text-2xl font-extrabold text-slate-900">-</h2>
+        </div>
+      </div>
+    </div>
+
+    <!-- FILTER SECTION -->
+    <div class="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm mb-8 flex flex-col md:flex-row gap-4 items-center justify-between">
+      <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
+        <div class="relative flex-1 md:flex-initial min-w-[240px]">
+          <i data-lucide="search" class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"></i>
+          <input type="text" id="filter-search" oninput="applyFilters()" placeholder="Cari nomor tiket, agent, store..." class="w-full bg-slate-50 border border-slate-200/80 rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all">
+        </div>
+        
+        <select id="filter-source" onchange="applyFilters()" class="bg-slate-50 border border-slate-200/80 rounded-xl py-2 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500">
+          <option value="">Semua Cabang (A-D)</option>
+        </select>
+
+        <select id="filter-store" onchange="applyFilters()" class="bg-slate-50 border border-slate-200/80 rounded-xl py-2 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500">
+          <option value="">Semua Store</option>
+        </select>
+      </div>
+
+      <div class="flex items-center space-x-2 text-xs font-bold text-slate-400 uppercase tracking-wider w-full md:w-auto justify-end">
+        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
+        <span>Inbound Cache Ter-Konsumsi</span>
+      </div>
+    </div>
+
+    <!-- MAIN GRID FOR CHARTS AND DATA -->
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-8">
+      
+      <!-- COLUMN LEFT & CENTER: CHARTS & TABLES (2/3 width) -->
+      <div class="xl:col-span-2 space-y-8">
+        
+        <!-- VISUALIZATION CARDS -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <!-- CHART 1: PERFORMANCE TREND -->
+          <div class="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm">
+            <h3 class="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
+              <i data-lucide="bar-chart-2" class="w-4 h-4 text-emerald-500"></i>
+              Tren Tiket Inbound Harian
+            </h3>
+            <div class="h-64 flex items-center justify-center">
+              <canvas id="chart-trend"></canvas>
+            </div>
+          </div>
+
+          <!-- CHART 2: CHANNEL / CATEGORY BREAKDOWN -->
+          <div class="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm">
+            <h3 class="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
+              <i data-lucide="pie-chart" class="w-4 h-4 text-emerald-500"></i>
+              Kategori Kasus Terbanyak (Top 5)
+            </h3>
+            <div class="h-64 flex items-center justify-center">
+              <canvas id="chart-breakdown"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- LIST DATA (TICKET LIST) -->
+        <div class="bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
+          <div class="p-6 border-b border-slate-100 flex items-center justify-between">
+            <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <i data-lucide="list" class="w-4 h-4 text-emerald-500"></i>
+              Daftar Riwayat Penanganan Tiket
+            </h3>
+            <span id="data-count" class="bg-emerald-50 text-emerald-700 text-xs font-bold px-3 py-1 rounded-full">0 Tiket</span>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+              <thead>
+                <tr class="bg-slate-50 border-b border-slate-100 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
+                  <th class="p-4 pl-6">ID Tiket</th>
+                  <th class="p-4">Tanggal</th>
+                  <th class="p-4">Cabang</th>
+                  <th class="p-4">Store</th>
+                  <th class="p-4">Agent</th>
+                  <th class="p-4">FRT & CSAT</th>
+                  <th class="p-4 pr-6 text-right">Status SLA</th>
+                </tr>
+              </thead>
+              <tbody id="table-body" class="divide-y divide-slate-100 text-sm font-semibold text-slate-700">
+                <!-- Data loaded dynamically -->
+              </tbody>
+            </table>
+          </div>
+
+          <div class="p-4 bg-slate-50/50 border-t border-slate-100 flex justify-between items-center text-xs text-slate-500 font-medium">
+            <p>Klik baris data untuk melihat detail operasional & SLA.</p>
+            <p id="table-pagination-info"></p>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- COLUMN RIGHT: LEADERBOARDS & STORE (1/3 width) -->
+      <div class="space-y-8">
+        
+        <!-- AGENT LEADERBOARD -->
+        <div class="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm">
+          <h3 class="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
+            <i data-lucide="award" class="w-4 h-4 text-amber-500"></i>
+            Peringkat Keaktifan Agent Inbound (Top 5)
+          </h3>
+          <div id="leaderboard-agents" class="space-y-4">
+            <!-- Dynamic Agent List -->
+          </div>
+        </div>
+
+        <!-- STORE PERFORMANCE DISTRIBUTION -->
+        <div class="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm">
+          <h3 class="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
+            <i data-lucide="store" class="w-4 h-4 text-rose-500"></i>
+            Sebaran Kasus Per Store (Top 5)
+          </h3>
+          <div id="leaderboard-stores" class="space-y-4">
+            <!-- Dynamic Store List -->
+          </div>
+        </div>
+
+        <!-- AUDIT KESALAHAN PICKER & PACKER (HUMAN ERROR) CARD -->
+        <div class="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm space-y-4">
+          <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-2">
+            <i data-lucide="package-x" class="w-4.5 h-4.5 text-rose-500"></i>
+            Audit Kesalahan Picker & Packer (Human Error)
+          </h3>
+          <div>
+            <h4 class="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-2.5">Peringkat Picker Error (Top 5)</h4>
+            <div id="audit-pickers" class="space-y-2.5">
+              <!-- Dynamic Picker List -->
+            </div>
+          </div>
+          <div class="border-t border-slate-100 pt-4">
+            <h4 class="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-2.5">Peringkat Packer Error (Top 5)</h4>
+            <div id="audit-packers" class="space-y-2.5">
+              <!-- Dynamic Packer List -->
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- DYNAMIC TICKET DETAIL MODAL (Fixed Data Inbound Mapping) -->
+  <div id="detail-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 opacity-0 pointer-events-none transition-all duration-300">
+    <div class="bg-white rounded-3xl shadow-2xl max-w-2xl w-full mx-4 overflow-hidden border border-slate-100 animate-in fade-in zoom-in duration-200">
+      <div class="p-6 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+        <div class="flex items-center space-x-3">
+          <div class="p-2.5 bg-emerald-500 text-white rounded-xl">
+            <i data-lucide="file-text" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-slate-900" id="modal-title">Detail Informasi Kasus</h3>
+            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider" id="modal-subtitle">Sumber Cabang</p>
+          </div>
+        </div>
+        <button onclick="closeModal()" class="p-1.5 hover:bg-slate-200 rounded-lg transition-colors text-slate-400 hover:text-slate-700">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      
+      <div id="modal-content-body" class="p-6 max-h-[70vh] overflow-y-auto space-y-6">
+        <!-- Terisi secara dinamis -->
+      </div>
+
+      <div class="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+        <button onclick="closeModal()" class="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-all">
+          TUTUP DETAIL
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- NOTIFICATION TOAST -->
+  <div id="toast" class="fixed bottom-6 right-6 z-50 transform translate-y-20 opacity-0 transition-all duration-300 max-w-sm">
+    <div class="bg-slate-950 text-white px-5 py-4 rounded-2xl shadow-xl border border-white/10 flex items-start space-x-3">
+      <div class="bg-emerald-500 p-1.5 rounded-lg text-white mt-0.5" id="toast-icon-container">
+        <i data-lucide="check" class="w-4 h-4" id="toast-icon"></i>
+      </div>
+      <div>
+        <h4 class="text-sm font-bold" id="toast-title">Notification</h4>
+        <p class="text-xs text-slate-300 mt-1 leading-relaxed" id="toast-message">Success message.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- JAVASCRIPT LOGIC CONTROLLER -->
+  <script>
+    var globalInboundData = [];
+    var filteredInbound = [];
+    var chartTrendInstance = null;
+    var chartBreakdownInstance = null;
+
+    window.onload = function() {
+      lucide.createIcons();
+      fetchDashboardData(false);
+    }
+
+    // Mengambil data dari GS Engine
+    function fetchDashboardData(forceRefresh) {
+      showLoading(true);
+      
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler(function(response) {
+            if (response && (response.status === "success" || response.status === "warning")) {
+              globalInboundData = response.data.inbound || [];
+              document.getElementById("last-update").innerText = response.lastUpdatedText || "-";
+              
+              var isCacheStr = response.isCached ? "Drive Cache (Inbound)" : "Live GSheets";
+              showToast("Inbound Tersinkron", "Berhasil mengonsumsi data dari " + isCacheStr, "check");
+              
+              if (response.errors && response.errors.length > 0) {
+                setTimeout(function() {
+                  showToast("Beberapa Sheet Gagal Sync", "Terdapat " + response.errors.length + " kesalahan akses pada GSheet sumber. Silakan periksa log atau otorisasi Anda.", "alert-triangle");
+                  console.error("Daftar Kesalahan Sinkronisasi:", response.errors);
+                }, 2000);
+              }
+
+              setupFilterDropdowns();
+              applyFilters();
+            } else {
+              showToast("Sinkronisasi Gagal", response.message || "Gagal memproses data", "x-circle");
+            }
+            showLoading(false);
+            resetRefreshButton();
+          })
+          .withFailureHandler(function(error) {
+            showToast("Koneksi Putus", error.message || "Error server", "x-circle");
+            showLoading(false);
+            resetRefreshButton();
+          })
+          .getInternalData(forceRefresh);
+      } else {
+        simulateLocalInbound();
+        resetRefreshButton();
+      }
+    }
+
+    function forceSyncData() {
+      var btn = document.getElementById("btn-refresh");
+      btn.disabled = true;
+      btn.classList.add("opacity-50");
+      document.getElementById("icon-refresh").classList.add("animate-spin");
+      fetchDashboardData(true);
+    }
+
+    function resetRefreshButton() {
+      var btn = document.getElementById("btn-refresh");
+      var icon = document.getElementById("icon-refresh");
+      if (btn) {
+        btn.disabled = false;
+        btn.classList.remove("opacity-50");
+      }
+      if (icon) {
+        icon.classList.remove("animate-spin");
+      }
+    }
+
+    function setupFilterDropdowns() {
+      var sourceDropdown = document.getElementById("filter-source");
+      var storeDropdown = document.getElementById("filter-store");
+
+      var sourceSet = new Set();
+      var storeSet = new Set();
+
+      globalInboundData.forEach(function(row) {
+        if (row._source) sourceSet.add(row._source);
+        if (row._store) storeSet.add(row._store);
+      });
+
+      sourceDropdown.innerHTML = '<option value="">Semua Cabang (A-D)</option>';
+      Array.from(sourceSet).sort().forEach(function(src) {
+        sourceDropdown.innerHTML += '<option value="' + src + '">' + src + '</option>';
+      });
+
+      storeDropdown.innerHTML = '<option value="">Semua Store</option>';
+      Array.from(storeSet).sort().forEach(function(st) {
+        storeDropdown.innerHTML += '<option value="' + st + '">' + st + '</option>';
+      });
+    }
+
+    function applyFilters() {
+      var searchKeyword = document.getElementById("filter-search").value.toLowerCase();
+      var selectedSource = document.getElementById("filter-source").value;
+      var selectedStore = document.getElementById("filter-store").value;
+
+      filteredInbound = globalInboundData.filter(function(row) {
+        var matchSearch = !searchKeyword || 
+          String(row._ticketNumber).toLowerCase().indexOf(searchKeyword) !== -1 ||
+          String(row._agentName).toLowerCase().indexOf(searchKeyword) !== -1 ||
+          String(row._store).toLowerCase().indexOf(searchKeyword) !== -1 ||
+          String(row._category).toLowerCase().indexOf(searchKeyword) !== -1 ||
+          String(row._picker).toLowerCase().indexOf(searchKeyword) !== -1 ||
+          String(row._packer).toLowerCase().indexOf(searchKeyword) !== -1;
+        
+        var matchSource = !selectedSource || row._source === selectedSource;
+        var matchStore = !selectedStore || row._store === selectedStore;
+
+        return matchSearch && matchSource && matchStore;
+      });
+
+      renderDashboard();
+    }
+
+    function renderDashboard() {
+      var data = filteredInbound;
+      document.getElementById("data-count").innerText = data.length + " Tiket";
+
+      // 1. Hitung Summary
+      var totalTickets = data.length;
+      var totalFrt = 0;
+      var countFrt = 0;
+      var slaAchieved = 0;
+      var totalCsat = 0;
+      var countCsat = 0;
+
+      // Picker & Packer human error map
+      var pickerErrorMap = {};
+      var packerErrorMap = {};
+
+      data.forEach(function(row) {
+        if (row._frtAgent > 0) {
+          totalFrt += row._frtAgent;
+          countFrt++;
+        }
+        if (row._frtSla === "YES") {
+          slaAchieved++;
+        }
+        if (row._rating > 0) {
+          totalCsat += row._rating;
+          countCsat++;
+        }
+
+        // Hitung Audit Human Error Picker & Packer
+        if (row._humanError === "YES") {
+          if (row._picker && row._picker.trim() !== "" && row._picker !== "-") {
+            var pName = row._picker.trim();
+            pickerErrorMap[pName] = (pickerErrorMap[pName] || 0) + 1;
+          }
+          if (row._packer && row._packer.trim() !== "" && row._packer !== "-") {
+            var pkName = row._packer.trim();
+            packerErrorMap[pkName] = (packerErrorMap[pkName] || 0) + 1;
+          }
+        }
+      });
+
+      var avgFrt = countFrt > 0 ? (totalFrt / countFrt).toFixed(1) : 0;
+      var slaPct = totalTickets > 0 ? ((slaAchieved / totalTickets) * 100).toFixed(1) : 0;
+      var avgCsat = countCsat > 0 ? (totalCsat / countCsat).toFixed(2) : "0.00";
+
+      document.getElementById("stat-total-tickets").innerText = totalTickets.toLocaleString();
+      document.getElementById("stat-avg-frt").innerText = avgFrt + "m";
+      document.getElementById("stat-sla-pct").innerText = slaPct + "%";
+      document.getElementById("stat-csat-avg").innerText = avgCsat + "/5.0";
+
+      // 2. Render Tabel
+      var tbody = document.getElementById("table-body");
+      tbody.innerHTML = "";
+      var displayData = data.slice(0, 100);
+
+      if (displayData.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="p-8 text-center text-slate-400 font-bold">Tidak ada data inbound yang sesuai filter.</td></tr>';
+      } else {
+        displayData.forEach(function(row, index) {
+          var slaColor = row._frtSla === "YES" ? "bg-emerald-50 text-emerald-700 border border-emerald-100" : "bg-rose-50 text-rose-700 border border-rose-100";
+          tbody.innerHTML += 
+            '<tr onclick="openInboundModal(' + index + ')" class="hover:bg-slate-50/80 transition-colors cursor-pointer border-b border-slate-50 font-semibold">' +
+              '<td class="p-4 pl-6 font-bold text-slate-900">' + (row._ticketNumber || '-') + '</td>' +
+              '<td class="p-4 text-xs font-semibold text-slate-500">' + (row._date || '-') + '</td>' +
+              '<td class="p-4 text-xs font-bold text-indigo-600">' + (row._source || '-') + '</td>' +
+              '<td class="p-4 text-xs text-slate-700 font-bold">' + (row._store || '-') + '</td>' +
+              '<td class="p-4 text-slate-800 font-bold">' + (row._agentName || '-') + '</td>' +
+              '<td class="p-4 text-xs">' +
+                '<div class="flex items-center space-x-2">' +
+                  '<span class="font-bold text-slate-800">' + (row._frtAgent ? row._frtAgent.toFixed(1) : '0') + 'm</span>' +
+                  '<span class="text-slate-300">|</span>' +
+                  '<span class="font-bold text-amber-500">' + (row._rating || '0') + '★</span>' +
+                '</div>' +
+              '</td>' +
+              '<td class="p-4 pr-6 text-right">' +
+                '<span class="px-2.5 py-1 rounded-full text-[10px] font-extrabold tracking-wide uppercase ' + slaColor + '">' + (row._frtSla || 'NO') + '</span>' +
+              '</td>' +
+            '</tr>';
+        });
+      }
+
+      generateLeaderboards(data, pickerErrorMap, packerErrorMap);
+      renderInboundCharts(data);
+    }
+
+    function generateLeaderboards(data, pickerErrorMap, packerErrorMap) {
+      var agentMap = {};
+      var storeMap = {};
+
+      data.forEach(function(row) {
+        if (row._agentName) {
+          agentMap[row._agentName] = (agentMap[row._agentName] || 0) + 1;
+        }
+        if (row._store) {
+          storeMap[row._store] = (storeMap[row._store] || 0) + 1;
+        }
+      });
+
+      var topAgents = Object.entries(agentMap).sort(function(a,b) { return b[1] - a[1]; }).slice(0, 5);
+      var topStores = Object.entries(storeMap).sort(function(a,b) { return b[1] - a[1]; }).slice(0, 5);
+
+      // Render Leaderboard Agents
+      var agentContainer = document.getElementById("leaderboard-agents");
+      agentContainer.innerHTML = topAgents.length ? "" : '<p class="text-xs text-slate-400 text-center py-4">Data agent tidak ditemukan.</p>';
+      topAgents.forEach(function(item, index) {
+        var name = item[0];
+        var count = item[1];
+        var pct = data.length > 0 ? ((count / data.length) * 100).toFixed(0) : 0;
+        agentContainer.innerHTML += 
+          '<div>' +
+            '<div class="flex justify-between items-center text-xs font-bold text-slate-700 mb-1.5">' +
+              '<span class="flex items-center gap-1.5">' +
+                '<span class="bg-slate-100 text-slate-700 w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-extrabold">' + (index + 1) + '</span>' +
+                name +
+              '</span>' +
+              '<span>' + count + ' Tiket (' + pct + '%)</span>' +
+            '</div>' +
+            '<div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden">' +
+              '<div class="bg-emerald-500 h-full rounded-full" style="width: ' + pct + '%"></div>' +
+            '</div>' +
+          '</div>';
+      });
+
+      // Render Leaderboard Stores
+      var storeContainer = document.getElementById("leaderboard-stores");
+      storeContainer.innerHTML = topStores.length ? "" : '<p class="text-xs text-slate-400 text-center py-4">Data store tidak ditemukan.</p>';
+      topStores.forEach(function(item, index) {
+        var name = item[0];
+        var count = item[1];
+        var pct = data.length > 0 ? ((count / data.length) * 100).toFixed(0) : 0;
+        storeContainer.innerHTML += 
+          '<div>' +
+            '<div class="flex justify-between items-center text-xs font-bold text-slate-700 mb-1.5">' +
+              '<span class="flex items-center gap-1.5">' +
+                '<span class="bg-rose-50 text-rose-700 w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-extrabold">' + (index + 1) + '</span>' +
+                name +
+              '</span>' +
+              '<span>' + count + ' Tiket</span>' +
+            '</div>' +
+            '<div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden">' +
+              '<div class="bg-rose-500 h-full rounded-full" style="width: ' + pct + '%"></div>' +
+            '</div>' +
+          '</div>';
+      });
+
+      // Render Audit Picker & Packer Error
+      var sortedPickers = Object.entries(pickerErrorMap).sort(function(a, b) { return b[1] - a[1]; }).slice(0, 5);
+      var sortedPackers = Object.entries(packerErrorMap).sort(function(a, b) { return b[1] - a[1]; }).slice(0, 5);
+
+      var pickerContainer = document.getElementById("audit-pickers");
+      pickerContainer.innerHTML = sortedPickers.length ? "" : '<p class="text-xs text-slate-400 text-center py-2">Tidak ada kesalahan picker.</p>';
+      sortedPickers.forEach(function(item, index) {
+        var name = item[0];
+        var count = item[1];
+        pickerContainer.innerHTML += 
+          '<div class="flex justify-between items-center text-xs font-semibold text-slate-700">' +
+            '<span class="flex items-center gap-1.5">' +
+              '<span class="bg-rose-50 text-rose-700 w-4.5 h-4.5 rounded flex items-center justify-center text-[9px] font-bold">' + (index + 1) + '</span>' +
+              name +
+            '</span>' +
+            '<span class="text-rose-600 font-bold">' + count + ' Error</span>' +
+          '</div>';
+      });
+
+      var packerContainer = document.getElementById("audit-packers");
+      packerContainer.innerHTML = sortedPackers.length ? "" : '<p class="text-xs text-slate-400 text-center py-2">Tidak ada kesalahan packer.</p>';
+      sortedPackers.forEach(function(item, index) {
+        var name = item[0];
+        var count = item[1];
+        packerContainer.innerHTML += 
+          '<div class="flex justify-between items-center text-xs font-semibold text-slate-700">' +
+            '<span class="flex items-center gap-1.5">' +
+              '<span class="bg-rose-50 text-rose-700 w-4.5 h-4.5 rounded flex items-center justify-center text-[9px] font-bold">' + (index + 1) + '</span>' +
+              name +
+            '</span>' +
+            '<span class="text-rose-600 font-bold">' + count + ' Error</span>' +
+          '</div>';
+      });
+    }
+
+    function renderInboundCharts(data) {
+      var dates = {};
+      var categories = {};
+
+      data.forEach(function(row) {
+        if (row._date) {
+          dates[row._date] = (dates[row._date] || 0) + 1;
+        }
+        if (row._category) {
+          categories[row._category] = (categories[row._category] || 0) + 1;
+        }
+      });
+
+      var sortedDates = Object.keys(dates).sort();
+      var trendValues = sortedDates.map(function(d) { return dates[d]; });
+
+      var sortedCategories = Object.entries(categories).sort(function(a,b) { return b[1] - a[1]; }).slice(0, 5);
+      var catLabels = sortedCategories.map(function(c) { return c[0]; });
+      var catValues = sortedCategories.map(function(c) { return c[1]; });
+
+      if (chartTrendInstance) chartTrendInstance.destroy();
+      if (chartBreakdownInstance) chartBreakdownInstance.destroy();
+
+      var ctxTrend = document.getElementById("chart-trend").getContext("2d");
+      chartTrendInstance = new Chart(ctxTrend, {
+        type: 'line',
+        data: {
+          labels: sortedDates,
+          datasets: [{
+            label: 'Volume Tiket',
+            data: trendValues,
+            borderColor: '#10b981',
+            backgroundColor: 'rgba(16, 185, 129, 0.05)',
+            borderWidth: 3,
+            tension: 0.3,
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { beginAtZero: true, grid: { color: '#f1f5f9' } },
+            x: { grid: { display: false } }
+          }
+        }
+      });
+
+      var ctxBreakdown = document.getElementById("chart-breakdown").getContext("2d");
+      chartBreakdownInstance = new Chart(ctxBreakdown, {
+        type: 'doughnut',
+        data: {
+          labels: catLabels,
+          datasets: [{
+            data: catValues,
+            backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6']
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: { boxWidth: 10, font: { size: 10, weight: 'bold' } }
+            }
+          }
+        }
+      });
+    }
+
+    function openInboundModal(index) {
+      var row = filteredInbound[index];
+      if (!row) return;
+
+      document.getElementById("modal-title").innerText = row._ticketNumber || "Detail Inbound Tiket";
+      document.getElementById("modal-subtitle").innerText = "SUMBER DATA: " + (row._source || "-");
+
+      var body = document.getElementById("modal-content-body");
+      body.innerHTML = 
+        '<div class="grid grid-cols-2 gap-6 border-b border-slate-100 pb-6">' +
+          '<div>' +
+            '<p class="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">Store Penjualan</p>' +
+            '<p class="text-sm font-bold text-slate-900">' + (row._store || '-') + '</p>' +
+          '</div>' +
+          '<div>' +
+            '<p class="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">Tanggal Transaksi</p>' +
+            '<p class="text-sm font-bold text-slate-700">' + (row._date || '-') + '</p>' +
+          '</div>' +
+        '</div>' +
+        '<div class="grid grid-cols-3 gap-6 border-b border-slate-100 pb-6">' +
+          '<div>' +
+            '<p class="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">CS Agent</p>' +
+            '<p class="text-sm font-bold text-slate-900">' + (row._agentName || '-') + '</p>' +
+          '</div>' +
+          '<div>' +
+            '<p class="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">Kanal/Channel</p>' +
+            '<p class="text-sm font-bold text-indigo-600">' + (row._channel || '-') + '</p>' +
+          '</div>' +
+          '<div>' +
+            '<p class="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">Rating CSAT</p>' +
+            '<p class="text-sm font-bold text-amber-500">' + (row._rating ? row._rating + ' ★' : '-') + '</p>' +
+          '</div>' +
+        '</div>' +
+        '<div class="grid grid-cols-2 gap-6 border-b border-slate-100 pb-6">' +
+          '<div>' +
+            '<p class="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">Kategori Masalah</p>' +
+            '<p class="text-xs font-bold text-slate-800">' + (row._category || '-') + '</p>' +
+            '<p class="text-[10px] text-slate-400 mt-1">' + (row._subCategory || '-') + '</p>' +
+          '</div>' +
+          '<div>' +
+            '<p class="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">Klasifikasi</p>' +
+            '<p class="text-xs font-bold text-slate-800">' + (row._classification || '-') + '</p>' +
+          '</div>' +
+        '</div>' +
+        '<div class="grid grid-cols-3 gap-4 border-b border-slate-100 pb-6">' +
+          '<div>' +
+            '<p class="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">FRT Agent</p>' +
+            '<p class="text-xs font-bold text-slate-800">' + (row._frtAgent ? row._frtAgent.toFixed(1) + ' Menit' : '-') + '</p>' +
+          '</div>' +
+          '<div>' +
+            '<p class="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">FRT SLA Achieved</p>' +
+            '<p class="text-xs font-bold text-slate-800">' + (row._frtSla || '-') + '</p>' +
+          '</div>' +
+          '<div>' +
+            '<p class="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">Handling Time</p>' +
+            '<p class="text-xs font-bold text-slate-800">' + (row._handlingTime ? row._handlingTime.toFixed(1) + ' Menit' : '-') + '</p>' +
+          '</div>' +
+        '</div>' +
+        '<div class="grid grid-cols-2 gap-6 border-b border-slate-100 pb-6">' +
+          '<div>' +
+            '<p class="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">Nama Picker</p>' +
+            '<p class="text-sm font-bold text-rose-600">' + (row._picker || '-') + '</p>' +
+          '</div>' +
+          '<div>' +
+            '<p class="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">Nama Packer</p>' +
+            '<p class="text-sm font-bold text-rose-600">' + (row._packer || '-') + '</p>' +
+          '</div>' +
+        '</div>' +
+        '<div class="space-y-3">' +
+          '<div>' +
+            '<p class="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">Detail Masalah / Issue</p>' +
+            '<p class="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100 leading-relaxed">' + (row._detailIssue || '-') + '</p>' +
+          '</div>' +
+          '<div>' +
+            '<p class="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">Solusi Penanganan</p>' +
+            '<p class="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100 leading-relaxed">' + (row._solution || '-') + '</p>' +
+          '</div>' +
+        '</div>';
+
+      toggleModalVisibility(true);
+    }
+
+    function toggleModalVisibility(isOpen) {
+      var modal = document.getElementById("detail-modal");
+      if (isOpen) {
+        modal.classList.remove("opacity-0", "pointer-events-none");
+      } else {
+        modal.classList.add("opacity-0", "pointer-events-none");
+      }
+    }
+
+    function closeModal() {
+      toggleModalVisibility(false);
+    }
+
+    function showLoading(isVisible) {
+      var overlay = document.getElementById("loading-overlay");
+      if (isVisible) {
+        overlay.classList.remove("opacity-0", "pointer-events-none");
+      } else {
+        overlay.classList.add("opacity-0", "pointer-events-none");
+        var btn = document.getElementById("btn-refresh");
+        btn.disabled = false;
+        btn.classList.remove("opacity-50");
+        document.getElementById("icon-refresh").classList.remove("animate-spin");
+      }
+    }
+
+    function showToast(title, message, iconName) {
+      var toast = document.getElementById("toast");
+      document.getElementById("toast-title").innerText = title;
+      document.getElementById("toast-message").innerText = message;
+      
+      var iconEl = document.getElementById("toast-icon");
+      iconEl.setAttribute("data-lucide", iconName);
+      lucide.createIcons();
+
+      toast.classList.remove("translate-y-20", "opacity-0");
+      setTimeout(function() {
+        toast.classList.add("translate-y-20", "opacity-0");
+      }, 4000);
+    }
+
+    function simulateLocalInbound() {
+      console.warn("Menggunakan dataset simulasi lokal.");
+      globalInboundData = [
+        { _source: "Cabang Jakarta", _ticketNumber: "INC-88902", _date: "2026-07-10", _store: "AlloFresh Sudirman", _agentName: "Ahmad Dani", _frtAgent: 1.5, _rating: 5, _frtSla: "YES", _category: "Pembayaran", _subCategory: "Gagal QRIS", _classification: "Billing", _detailIssue: "Pelanggan mengeluhkan pembayaran QRIS terpotong ganda.", _solution: "Refund diproses melalui dompet Allo.", _picker: "Anto", _packer: "Soni", _channel: "WhatsApp", _humanError: "YES" },
+        { _source: "Cabang Bandung", _ticketNumber: "INC-88903", _date: "2026-07-11", _store: "AlloFresh Dago", _agentName: "Siti Rahma", _frtAgent: 6.2, _rating: 3, _frtSla: "NO", _category: "Pengiriman", _subCategory: "Telat", _classification: "Logistik", _detailIssue: "Pengiriman terlambat lebih dari 1 jam karena cuaca hujan.", _solution: "Koordinasi driver untuk prioritas.", _picker: "Dani", _packer: "Tono", _channel: "App Chat", _humanError: "YES" }
+      ];
+      document.getElementById("last-update").innerText = "Simulasi Offline (Inbound)";
+      setupFilterDropdowns();
+      applyFilters();
+      showLoading(false);
+    }
+  </script>
+</body>
+</html>

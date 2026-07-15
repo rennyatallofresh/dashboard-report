@@ -1,0 +1,805 @@
+/**
+ * GOOGLE APPS SCRIPT - MODULAR ROUTER & HIGH-PERFORMANCE CACHE ENGINE (V14 - PRODUCTION FINAL SAFE)
+ * Tempelkan script ini pada Extensions > Apps Script di dalam Google Sheets "CS API Sources" atau "GSheet Engine"
+ * Folder ID Cache GDrive: 1_yt3H1FWxgbWQ7ekgZIu7WmuxE5KOrMm
+ */
+
+var FOLDER_ID = "1_yt3H1FWxgbWQ7ekgZIu7WmuxE5KOrMm";
+var FILE_INBOUND = "inbound_cache.json";
+var FILE_OUTBOUND = "outbound_cache.json";
+
+/**
+ * =========================================================================
+ * FUNGSI EKSEKUSI MANUAL UTAMA
+ * Pilih fungsi "Mulai_Sinkronisasi_Manual" di dropdown atas, lalu klik "Run"
+ * =========================================================================
+ */
+function Mulai_Sinkronisasi_Manual() {
+  console.log("Memicu sinkronisasi manual untuk seluruh data...");
+  var errors = [];
+  var result = rebuildAllCaches(null, errors);
+  
+  console.log("=== HASIL SINKRONISASI ===");
+  console.log("Status: " + result.status);
+  console.log("Sumber Terbaca: " + JSON.stringify(result.sourcesLoaded));
+  if (result.errors && result.errors.length > 0) {
+    console.warn("Ada beberapa kendala non-kritis yang dilewati: ", result.errors);
+  } else {
+    console.log("Sinkronisasi 100% Sukses tanpa kendala!");
+  }
+}
+
+/**
+ * Routing Handler Utama - Menampilkan halaman HTML sesuai parameter page.
+ * Dilengkapi dengan Server-to-Client Parameter Injection untuk melewati proteksi iframe sandbox GDrive.
+ */
+function doGet(e) {
+  if (e && e.parameter && e.parameter.api === "data") {
+    var force = e.parameter.force === "true";
+    return ContentService.createTextOutput(JSON.stringify(getInternalData(force)))
+                         .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var pageParam = (e && e.parameter && e.parameter.page) ? e.parameter.page.toString().toLowerCase() : "index";
+  var templateName = pageParam === "outbound" ? "outbound" : "inbound";
+  
+  try {
+    var template = HtmlService.createTemplateFromFile(templateName);
+    
+    // Mendapatkan URL Web App secara dinamis
+    var webAppUrl = "";
+    try {
+      webAppUrl = ScriptApp.getService().getUrl();
+    } catch(err) {
+      webAppUrl = "#";
+    }
+    template.webAppUrl = webAppUrl;
+
+    template.page = pageParam;
+    
+    // Menyimpan semua query parameter cadangan dalam format JSON string jika dibutuhkan di masa mendatang
+    template.queryParams = JSON.stringify(e && e.parameter ? e.parameter : {});
+
+    return template.evaluate()
+      .setTitle("AlloFresh Customer Service Performance Hub")
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+      .addMetaTag("viewport", "width=device-width, initial-scale=1.0");
+  } catch (error) {
+    return HtmlService.createHtmlOutput(
+      "<h3>Error Loading WebApp (" + templateName + "): " + error.toString() + "</h3>" +
+      "<p>Pastikan Anda memiliki file HTML bernama <b>" + templateName + "</b> di dalam proyek Apps Script Anda.</p>"
+    );
+  }
+}
+
+/**
+ * Jalankan sekali dari editor Apps Script untuk memasang trigger otomatis.
+ * Trigger time-driven lebih stabil daripada onEdit untuk data yang masuk dari impor, formula, atau API.
+ */
+function Pasang_Trigger_Otomatis() {
+  var triggerFunctions = [
+    "triggerUpdateInboundCache",
+    "triggerUpdateOutboundCache"
+  ];
+  var existingTriggers = ScriptApp.getProjectTriggers();
+
+  existingTriggers.forEach(function(trigger) {
+    if (triggerFunctions.indexOf(trigger.getHandlerFunction()) !== -1) {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  });
+
+  ScriptApp.newTrigger("triggerUpdateInboundCache")
+    .timeBased()
+    .everyMinutes(5)
+    .create();
+
+  ScriptApp.newTrigger("triggerUpdateOutboundCache")
+    .timeBased()
+    .everyMinutes(5)
+    .create();
+
+  console.log("Trigger otomatis berhasil dipasang: inbound dan outbound setiap 5 menit.");
+}
+
+/**
+ * Mengambil file cache dari Google Drive secara aman
+ */
+function getCacheFile(folder, filename) {
+  if (!folder) {
+    try {
+      folder = DriveApp.getFolderById(FOLDER_ID);
+    } catch (err) {
+      console.error("Gagal mendapatkan folder GDrive: " + err.message);
+      return null;
+    }
+  }
+
+  try {
+    var files = folder.getFilesByName(filename);
+    while (files.hasNext()) {
+      var f = files.next();
+      if (!f.isTrashed()) {
+        return f;
+      }
+    }
+  } catch (e) {
+    console.error("Gagal mengakses file " + filename + " di GDrive: " + e.message);
+  }
+  return null;
+}
+
+/**
+ * Fungsi utilitas untuk membuang duplikasi array
+ */
+function getUniqueArray(arr) {
+  var obj = {};
+  var unique = [];
+  for (var i = 0; i < arr.length; i++) {
+    if (arr[i] && !obj[arr[i]]) {
+      obj[arr[i]] = true;
+      unique.push(arr[i]);
+    }
+  }
+  return unique;
+}
+
+/**
+ * Fungsi Utama Pembaca Cache Gabungan (Menyatukan Inbound & Outbound untuk Dashboard)
+ */
+function getInternalData(forceRefresh) {
+  var folder;
+  var errors = [];
+  
+  try {
+    folder = DriveApp.getFolderById(FOLDER_ID);
+  } catch(err) {
+    return {
+      status: "error",
+      message: "Gagal mengakses folder Google Drive. Pastikan FOLDER_ID benar.",
+      errors: [err.message]
+    };
+  }
+
+  var inboundFile = getCacheFile(folder, FILE_INBOUND);
+  var outboundFile = getCacheFile(folder, FILE_OUTBOUND);
+
+  if (!forceRefresh && inboundFile && outboundFile) {
+    try {
+      var inboundContent = JSON.parse(inboundFile.getBlob().getDataAsString("UTF-8"));
+      var outboundContent = JSON.parse(outboundFile.getBlob().getDataAsString("UTF-8"));
+      
+      if (inboundContent && inboundContent.data && outboundContent && outboundContent.data) {
+        var combinedSources = (inboundContent.sourcesLoaded || []).concat(outboundContent.sourcesLoaded || []);
+        var uniqueSources = getUniqueArray(combinedSources);
+        var combinedErrors = (inboundContent.errors || []).concat(outboundContent.errors || []);
+
+        return {
+          status: combinedErrors.length > 0 ? "warning" : "success",
+          isCached: true,
+          lastUpdatedText: inboundContent.lastUpdatedText || outboundContent.lastUpdatedText,
+          sourcesLoaded: uniqueSources,
+          errors: combinedErrors,
+          data: {
+            inbound: inboundContent.data || [],
+            outbound: outboundContent.data || []
+          }
+        };
+      }
+    } catch (err) {
+      console.warn("Gagal membaca file cache GDrive, melakukan live rebuild: " + err.message);
+      errors.push("Gagal membaca cache: " + err.message);
+    }
+  }
+
+  return rebuildAllCaches(folder, errors);
+}
+
+/**
+ * Trigger Terjadwal Khusus untuk Sinkronisasi Inbound Cache secara parsial
+ */
+function triggerUpdateInboundCache() {
+  console.log("Menjalankan Sinkronisasi Terjadwal: Inbound...");
+  var errors = [];
+  var folder;
+  try {
+    folder = DriveApp.getFolderById(FOLDER_ID);
+    var sources = getActiveSources("inbound");
+    
+    if (sources.length === 0) {
+      console.warn("Sinkronisasi Inbound dibatalkan: Tidak ada sumber inbound aktif.");
+      return;
+    }
+
+    var inboundData = processInboundSources(sources, errors);
+    var formattedTime = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd MMM yyyy, HH:mm:ss");
+    var inboundCacheResponse = {
+      status: errors.length > 0 ? "warning" : "success",
+      timestamp: new Date().toISOString(),
+      lastUpdatedText: formattedTime,
+      sourcesLoaded: sources.map(function(s) { return s.name; }),
+      errors: errors,
+      data: inboundData
+    };
+
+    saveToGDrive(folder, FILE_INBOUND, inboundCacheResponse, errors);
+    console.log("Sinkronisasi Terjadwal Inbound Selesai.");
+  } catch (err) {
+    console.error("Gagal menjalankan trigger Inbound: " + err.message);
+  }
+}
+
+/**
+ * Trigger Terjadwal Khusus untuk Sinkronisasi Outbound Cache secara parsial
+ */
+function triggerUpdateOutboundCache() {
+  console.log("Menjalankan Sinkronisasi Terjadwal: Outbound...");
+  var errors = [];
+  var folder;
+  try {
+    folder = DriveApp.getFolderById(FOLDER_ID);
+    var sources = getActiveSources("outbound");
+    
+    if (sources.length === 0) {
+      console.warn("Sinkronisasi Outbound dibatalkan: Tidak ada sumber outbound aktif.");
+      return;
+    }
+
+    var outboundData = processOutboundSources(sources, errors);
+    var formattedTime = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd MMM yyyy, HH:mm:ss");
+    var outboundCacheResponse = {
+      status: errors.length > 0 ? "warning" : "success",
+      timestamp: new Date().toISOString(),
+      lastUpdatedText: formattedTime,
+      sourcesLoaded: sources.map(function(s) { return s.name; }),
+      errors: errors,
+      data: outboundData
+    };
+
+    saveToGDrive(folder, FILE_OUTBOUND, outboundCacheResponse, errors);
+    console.log("Sinkronisasi Terjadwal Outbound Selesai.");
+  } catch (err) {
+    console.error("Gagal menjalankan trigger Outbound: " + err.message);
+  }
+}
+
+/**
+ * Memaksa Rebuild Menyeluruh untuk Kedua Sumber (Aman digunakan langsung dari editor GAS)
+ */
+function rebuildAllCaches(folder, errors) {
+  if (!errors) errors = [];
+  if (!folder) {
+    try {
+      folder = DriveApp.getFolderById(FOLDER_ID);
+    } catch(err) {
+      return {
+        status: "error",
+        message: "Gagal membuka folder GDrive: " + err.message,
+        errors: [err.message]
+      };
+    }
+  }
+
+  try {
+    var inboundSources = getActiveSources("inbound");
+    var outboundSources = getActiveSources("outbound");
+
+    if (inboundSources.length === 0 && outboundSources.length === 0) {
+      var abortMsg = "Gagal memuat: Tidak ditemukan sumber aktif pada tab 'Sources'. Pastikan nama tab benar.";
+      errors.push(abortMsg);
+      return {
+        status: "error",
+        message: abortMsg,
+        errors: errors
+      };
+    }
+
+    var inboundData = processInboundSources(inboundSources, errors);
+    var outboundData = processOutboundSources(outboundSources, errors);
+    var formattedTime = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd MMM yyyy, HH:mm:ss");
+
+    var inboundResponse = {
+      status: errors.length > 0 ? "warning" : "success",
+      timestamp: new Date().toISOString(),
+      lastUpdatedText: formattedTime,
+      sourcesLoaded: inboundSources.map(function(s) { return s.name; }),
+      errors: errors,
+      data: inboundData
+    };
+    saveToGDrive(folder, FILE_INBOUND, inboundResponse, errors);
+
+    var outboundResponse = {
+      status: errors.length > 0 ? "warning" : "success",
+      timestamp: new Date().toISOString(),
+      lastUpdatedText: formattedTime,
+      sourcesLoaded: outboundSources.map(function(s) { return s.name; }),
+      errors: errors,
+      data: outboundData
+    };
+    saveToGDrive(folder, FILE_OUTBOUND, outboundResponse, errors);
+
+    var combinedSources = inboundSources.map(function(s) { return s.name; }).concat(outboundSources.map(function(s) { return s.name; }));
+
+    return {
+      status: errors.length > 0 ? "warning" : "success",
+      timestamp: new Date().toISOString(),
+      lastUpdatedText: formattedTime,
+      sourcesLoaded: combinedSources,
+      errors: errors,
+      data: {
+        inbound: inboundData,
+        outbound: outboundData
+      },
+      isCached: false
+    };
+  } catch (error) {
+    errors.push("Gagal melakukan rekonstruksi cache: " + error.toString());
+    return {
+      status: "error",
+      message: "Gagal rekonstruksi cache: " + error.toString(),
+      errors: errors
+    };
+  }
+}
+
+/**
+ * Mendapatkan daftar sumber GSheet dinamis dari tab "Sources" secara Case-Insensitive
+ */
+function getActiveSources(typeFilter) {
+  var activeSpreadsheet;
+  try {
+    activeSpreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  } catch (e) {
+    console.error("Gagal mendeteksi Active Spreadsheet: " + e.message);
+    return [];
+  }
+
+  if (!activeSpreadsheet) {
+    console.error("Active Spreadsheet tidak ditemukan.");
+    return [];
+  }
+
+  var sheets = activeSpreadsheet.getSheets();
+  var sourceSheet = null;
+  
+  for (var s = 0; s < sheets.length; s++) {
+    var sName = sheets[s].getName().trim().toLowerCase();
+    if (sName === "sources" || sName === "source") {
+      sourceSheet = sheets[s];
+      break;
+    }
+  }
+  
+  if (!sourceSheet) {
+    console.error("Tab 'Sources' tidak ditemukan di GSheet!");
+    return [];
+  }
+
+  var data = sourceSheet.getDataRange().getValues();
+  if (data.length < 2) return [];
+
+  // Baris header dipastikan berada di Row 1 (Index 0)
+  var headerIdx = 0;
+  var headers = data[headerIdx].map(function(h) { return String(h).trim().toLowerCase(); });
+  
+  var colName = -1, colLink = -1, colSheet = -1, colType = -1, colStatus = -1;
+  for (var c = 0; c < headers.length; c++) {
+    var h = headers[c];
+    if (h.indexOf("sheet") !== -1 || h.indexOf("tab") !== -1) {
+      colSheet = c; // Pencarian sheet didahulukan untuk menghindari konflik kata "name" pada "sheet name"
+    } else if (h.indexOf("name") !== -1 || h.indexOf("source") !== -1 || h.indexOf("sumber") !== -1) {
+      if (colName === -1) colName = c;
+    } else if (h.indexOf("link") !== -1 || h.indexOf("url") !== -1 || h.indexOf("spreadsheet") !== -1 || h.indexOf("id") !== -1) {
+      if (colLink === -1) colLink = c;
+    } else if (h.indexOf("type") !== -1 || h.indexOf("tipe") !== -1 || h.indexOf("jenis") !== -1) {
+      if (colType === -1) colType = c;
+    } else if (h.indexOf("status") !== -1 || h.indexOf("active") !== -1 || h.indexOf("aktif") !== -1) {
+      if (colStatus === -1) colStatus = c;
+    }
+  }
+
+  // Fallback default jika pencarian kolom gagal
+  if (colName === -1) colName = 0;
+  if (colLink === -1) colLink = 1;
+  if (colSheet === -1) colSheet = 2;
+  if (colType === -1) colType = 3;
+  if (colStatus === -1) colStatus = 4;
+
+  var sources = [];
+  for (var i = headerIdx + 1; i < data.length; i++) {
+    var row = data[i];
+    if (!row || row.length <= Math.max(colName, colLink, colSheet, colType, colStatus)) continue;
+    
+    var nameVal = String(row[colName]).trim();
+    var linkVal = String(row[colLink]).trim();
+    var sheetVal = String(row[colSheet]).trim();
+    var typeVal = String(row[colType]).trim();
+    var statusVal = String(row[colStatus]).trim().toLowerCase();
+
+    if (!nameVal || !linkVal) continue;
+
+    var isMatchedType = !typeFilter || typeVal.toLowerCase() === typeFilter.toLowerCase();
+    var isActive = (statusVal === "true" || statusVal === "active" || statusVal === "aktif" || row[colStatus] === true);
+
+    if (isActive && isMatchedType) {
+      sources.push({
+        name: nameVal,
+        spreadsheetId: extractIdFromUrl(linkVal),
+        sheetName: sheetVal,
+        type: typeVal
+      });
+    }
+  }
+  return sources;
+}
+
+/**
+ * Logika Pemrosesan Lembar Kerja (GSheet) Inbound secara Null-Safe
+ */
+function processInboundSources(sources, errors) {
+  var inboundData = [];
+  for (var sIdx = 0; sIdx < sources.length; sIdx++) {
+    var source = sources[sIdx];
+    try {
+      var ss;
+      try {
+        ss = SpreadsheetApp.openById(source.spreadsheetId);
+      } catch (openErr) {
+        errors.push("Gagal membuka Inbound '" + source.name + "'. Pastikan ID GSheet benar: " + openErr.message);
+        continue;
+      }
+
+      var sheet = null;
+      try {
+        sheet = ss.getSheetByName(source.sheetName);
+      } catch (sheetErr) {
+        console.warn("Gagal membuka nama sheet '" + source.sheetName + "' pada " + source.name);
+      }
+
+      if (!sheet) {
+        var sheets = ss.getSheets();
+        if (sheets.length > 0) {
+          sheet = sheets[0];
+          errors.push("Inbound '" + source.name + "' salah nama sheet. Dialihkan otomatis ke sheet pertama: '" + sheet.getName() + "'.");
+        }
+      }
+
+      if (!sheet) {
+        errors.push("Inbound GSheet '" + source.name + "' tidak memiliki sheet yang dapat diakses.");
+        continue;
+      }
+
+      var sheetValues = sheet.getDataRange().getValues();
+      if (sheetValues.length < 2) continue;
+
+      // Baris header dipastikan selalu berada di Row 1 (Index 0)
+      var headerRowIdx = 0;
+      
+      var rawHeaders = sheetValues[headerRowIdx].map(function(h) { 
+        if (h === null || h === undefined) return "";
+        return h.toString().trim(); 
+      });
+      
+      var colTicket = findColumnIndex(rawHeaders, ["ticketnumber", "ticket", "noticket", "id", "notiket", "nomortiket", "no", "no.", "nomor"]);
+      var colDate = findColumnIndex(rawHeaders, ["date", "tanggal", "waktu", "tgl"]);
+      var colChannel = findColumnIndex(rawHeaders, ["channel", "sumber", "media"]);
+      var colType = findColumnIndex(rawHeaders, ["type", "tipe", "tipetiket"]);
+      var colCategory = findColumnIndex(rawHeaders, ["category", "kategori", "kategorimasalah"]);
+      var colSubCategory = findColumnIndex(rawHeaders, ["subcategory", "sub-category", "subkategori"]);
+      var colClassification = findColumnIndex(rawHeaders, ["classification", "klasifikasi", "rootcause"]);
+      var colStore = findColumnIndex(rawHeaders, ["store", "cabang", "toko", "site"]);
+      var colStatus = findColumnIndex(rawHeaders, ["status", "statusakhir"]);
+      var colRating = findColumnIndex(rawHeaders, ["rating", "csat", "score"]);
+      var colPicker = findColumnIndex(rawHeaders, ["picker", "namapicker", "piker", "pick", "pickername", "namapickerpacker"]);
+      var colPacker = findColumnIndex(rawHeaders, ["packer", "namapacker", "paker", "pack", "packername", "namapickerpacker"]);
+      var colSolution = findColumnIndex(rawHeaders, ["solution", "solusi"]);
+      var colDetailIssue = findColumnIndex(rawHeaders, ["detailissue", "detailmasalah", "remark", "keterangan", "issue"]);
+      var colAgentName = findColumnIndex(rawHeaders, ["csagent", "namaagent", "agentname", "agent", "petugas", "nama_agent", "cs_agent", "pic"]);
+      var colFrtAgent = findColumnIndex(rawHeaders, ["frtagent", "frt_agent", "firstresponsetime", "frt", "frt_duration"]);
+      var colEscalationTime = findColumnIndex(rawHeaders, ["escalationtime", "escalation_time", "waktueskalasi", "escalation"]);
+      var colHandlingTime = findColumnIndex(rawHeaders, ["handlingtime", "handling_time", "sla", "handlingtime/sla", "duration"]);
+      var colHumanError = findColumnIndex(rawHeaders, ["humanerror", "human_error", "kesalahanmanusia", "he"]);
+      var colFcr = findColumnIndex(rawHeaders, ["fcr", "firstcontactresolution", "firstcontact"]);
+      var colFrtSla = findColumnIndex(rawHeaders, ["frtsla", "frt_sla", "frtachieved", "achievesla"]);
+
+      for (var r = headerRowIdx + 1; r < sheetValues.length; r++) {
+        var rowData = sheetValues[r];
+        
+        // Memeriksa baris kosong secara ultra-safe dan cepat
+        var rowText = rowData.join("").trim();
+        if (rowText === "") continue;
+
+        var ticketVal = colTicket !== -1 ? String(rowData[colTicket]).trim() : "";
+        if (!ticketVal) {
+          ticketVal = "INC-" + (r + 1);
+        }
+
+        var rawDate = colDate !== -1 ? rowData[colDate] : "";
+        var formattedDate = "";
+        if (rawDate) {
+          if (rawDate instanceof Date) {
+            try {
+              formattedDate = Utilities.formatDate(rawDate, Session.getScriptTimeZone(), "yyyy-MM-dd");
+            } catch(e) {
+              formattedDate = String(rawDate);
+            }
+          } else {
+            formattedDate = String(rawDate).trim();
+          }
+        }
+
+        inboundData.push({
+          _source: source.name,
+          _ticketNumber: ticketVal,
+          _date: formattedDate,
+          _channel: colChannel !== -1 ? String(rowData[colChannel]) : "",
+          _type: colType !== -1 ? String(rowData[colType]) : "",
+          _category: colCategory !== -1 ? String(rowData[colCategory]) : "",
+          _subCategory: colSubCategory !== -1 ? String(rowData[colSubCategory]) : "",
+          _classification: colClassification !== -1 ? String(rowData[colClassification]) : "",
+          _store: colStore !== -1 ? String(rowData[colStore]) : "",
+          _status: colStatus !== -1 ? String(rowData[colStatus]) : "",
+          _rating: colRating !== -1 ? parseFloatVal(rowData[colRating]) : 0,
+          _picker: colPicker !== -1 ? String(rowData[colPicker]) : "",
+          _packer: colPacker !== -1 ? String(rowData[colPacker]) : "",
+          _solution: colSolution !== -1 ? String(rowData[colSolution]) : "",
+          _detailIssue: colDetailIssue !== -1 ? String(rowData[colDetailIssue]) : "",
+          _agentName: colAgentName !== -1 ? String(rowData[colAgentName]) : "",
+          _frtAgent: colFrtAgent !== -1 ? parseDurationToMinutes(rowData[colFrtAgent]) : 0,
+          _escalationTime: colEscalationTime !== -1 ? parseDurationToMinutes(rowData[colEscalationTime]) : 0,
+          _handlingTime: colHandlingTime !== -1 ? parseDurationToMinutes(rowData[colHandlingTime]) : 0,
+          _humanError: colHumanError !== -1 ? parseYesNo(rowData[colHumanError]) : "NO",
+          _fcr: colFcr !== -1 ? parseYesNo(rowData[colFcr]) : "NO",
+          _frtSla: colFrtSla !== -1 ? parseYesNo(rowData[colFrtSla]) : "NO"
+        });
+      }
+    } catch (err) {
+      console.error("Gagal memproses source Inbound " + source.name + ": " + err.message);
+      errors.push("Inbound GSheet '" + source.name + "' Error: " + err.message);
+    }
+  }
+  return inboundData;
+}
+
+/**
+ * Logika Pemrosesan Lembar Kerja (GSheet) Outbound secara Null-Safe
+ */
+function processOutboundSources(sources, errors) {
+  var outboundData = [];
+  for (var sIdx = 0; sIdx < sources.length; sIdx++) {
+    var source = sources[sIdx];
+    try {
+      var ss;
+      try {
+        ss = SpreadsheetApp.openById(source.spreadsheetId);
+      } catch (openErr) {
+        errors.push("Gagal membuka Outbound '" + source.name + "'. Pastikan ID GSheet benar: " + openErr.message);
+        continue;
+      }
+
+      var sheet = null;
+      try {
+        sheet = ss.getSheetByName(source.sheetName);
+      } catch (sheetErr) {
+        console.warn("Gagal membuka nama sheet '" + source.sheetName + "' pada " + source.name);
+      }
+
+      if (!sheet) {
+        var sheets = ss.getSheets();
+        if (sheets.length > 0) {
+          sheet = sheets[0];
+          errors.push("Outbound '" + source.name + "' salah nama sheet. Dialihkan otomatis ke sheet pertama: '" + sheet.getName() + "'.");
+        }
+      }
+
+      if (!sheet) {
+        errors.push("Outbound GSheet '" + source.name + "' tidak memiliki sheet yang dapat diakses.");
+        continue;
+      }
+
+      var sheetValues = sheet.getDataRange().getValues();
+      if (sheetValues.length < 2) continue;
+
+      // Baris header dipastikan selalu berada di Row 1 (Index 0)
+      var headerRowIdx = 0;
+      
+      var rawHeaders = sheetValues[headerRowIdx].map(function(h) { 
+        if (h === null || h === undefined) return "";
+        return h.toString().trim(); 
+      });
+
+      var colTicket = findColumnIndex(rawHeaders, ["callid", "call_id", "nocallid", "nocallidnumber", "no.callid", "ticket", "noticket", "id", "no", "no.", "nomor", "phone", "telepon", "nohp"]);
+      var colDate = findColumnIndex(rawHeaders, ["date", "tanggal", "waktu", "tgl"]);
+      var colCallName = findColumnIndex(rawHeaders, ["callname", "customer", "nama", "call_name", "namacustomer", "customername", "pelanggan", "shopper"]);
+      var colFinalStatus = findColumnIndex(rawHeaders, ["finalstatus", "status", "hasilcall", "final_status", "statuscall", "hasil", "keterangan"]);
+      var colRemark = findColumnIndex(rawHeaders, ["remark", "detailissue", "keterangan", "catatan", "remarks", "remarkagen", "note"]);
+      var colAgentName = findColumnIndex(rawHeaders, ["csagent", "namaagent", "agentname", "agent", "petugas", "nama_agent", "cs_agent", "pic"]);
+      var colStore = findColumnIndex(rawHeaders, ["store", "cabang", "toko", "site"]);
+      var colAchieveSla = findColumnIndex(rawHeaders, ["sla", "slastatus", "achievesla", "achieved", "statussla", "status_sla"]);
+
+      for (var r = headerRowIdx + 1; r < sheetValues.length; r++) {
+        var rowData = sheetValues[r];
+        
+        // Memeriksa baris kosong secara ultra-safe dan cepat
+        var rowText = rowData.join("").trim();
+        if (rowText === "") continue;
+
+        var ticketVal = colTicket !== -1 ? String(rowData[colTicket]).trim() : "";
+        if (!ticketVal) {
+          ticketVal = "CALL-" + (r + 1);
+        }
+
+        var rawDate = colDate !== -1 ? rowData[colDate] : "";
+        var formattedDate = "";
+        if (rawDate) {
+          if (rawDate instanceof Date) {
+            try {
+              formattedDate = Utilities.formatDate(rawDate, Session.getScriptTimeZone(), "yyyy-MM-dd");
+            } catch(e) {
+              formattedDate = String(rawDate);
+            }
+          } else {
+            formattedDate = String(rawDate).trim();
+          }
+        }
+
+        outboundData.push({
+          _source: source.name,
+          _ticketNumber: ticketVal,
+          _date: formattedDate,
+          _callName: colCallName !== -1 ? String(rowData[colCallName]) : "",
+          _finalStatus: colFinalStatus !== -1 ? String(rowData[colFinalStatus]) : "",
+          _remark: colRemark !== -1 ? String(rowData[colRemark]) : "",
+          _agentName: colAgentName !== -1 ? String(rowData[colAgentName]) : "",
+          _store: colStore !== -1 ? String(rowData[colStore]) : "",
+          _achieveSla: colAchieveSla !== -1 ? parseOutboundSla(rowData[colAchieveSla]) : "-"
+        });
+      }
+    } catch (err) {
+      console.error("Gagal memproses source Outbound " + source.name + ": " + err.message);
+      errors.push("Outbound GSheet '" + source.name + "' Error: " + err.message);
+    }
+  }
+  return outboundData;
+}
+
+/**
+ * Helper Utilitas Pencocokan Kolom Berbasis Prioritas Urutan Array (Ultra-Safe)
+ */
+function findColumnIndex(headers, keys) {
+  var cleanHeaders = headers.map(function(h) { 
+    return h ? h.toString().toLowerCase().replace(/[^a-z0-9]/g, "") : ""; 
+  });
+
+  // Prioritas 1: Pencocokan Eksak berdasarkan urutan kata kunci terpenting
+  for (var k = 0; k < keys.length; k++) {
+    var key = keys[k].toLowerCase().replace(/[^a-z0-9]/g, "");
+    var matchIdx = cleanHeaders.indexOf(key);
+    if (matchIdx !== -1) {
+      return matchIdx;
+    }
+  }
+
+  // Prioritas 2: Pencocokan Parsial sebagai fallback cadangan
+  for (var k = 0; k < keys.length; k++) {
+    var key = keys[k].toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (key.length < 3) continue;
+
+    for (var h = 0; h < cleanHeaders.length; h++) {
+      var headerVal = cleanHeaders[h];
+      if (headerVal.length < 3) continue;
+
+      if (headerVal.indexOf(key) !== -1 || key.indexOf(headerVal) !== -1) {
+        return h;
+      }
+    }
+  }
+  return -1;
+}
+
+/**
+ * Parsing Durasi GSheet menjadi Satuan Menit secara Presisi
+ */
+function parseDurationToMinutes(val) {
+  if (val instanceof Date) {
+    var hours = val.getHours();
+    var minutes = val.getMinutes();
+    var seconds = val.getSeconds();
+    if (val.getFullYear() > 1900) return 0;
+    return (hours * 60) + minutes + (seconds / 60);
+  }
+  if (typeof val === "number") {
+    if (val < 1 && val > 0) return val * 24 * 60; // GSheet serial format fraction-of-day
+    return val;
+  }
+  if (typeof val === "string" && val.trim() !== "") {
+    var cleanVal = val.trim();
+    var regTime = new RegExp("^(\\d+):(\\d+):(\\d+)$");
+    var matchTime = cleanVal.match(regTime);
+    if (matchTime) {
+      return (parseInt(matchTime[1], 10) * 60) + parseInt(matchTime[2], 10) + (parseInt(matchTime[3], 10) / 60);
+    }
+    var regMinSec = new RegExp("^(\\d+):(\\d+)$");
+    var matchMinSec = cleanVal.match(regMinSec);
+    if (matchMinSec) {
+      return parseInt(matchMinSec[1], 10) + (parseInt(matchMinSec[2], 10) / 60);
+    }
+    var parsedNum = parseFloat(cleanVal.replace(/[^0-9.]/g, ""));
+    return isNaN(parsedNum) ? 0 : parsedNum;
+  }
+  return 0;
+}
+
+function parseYesNo(val) {
+  if (val === null || val === undefined) return "NO";
+  var clean = String(val).toLowerCase().trim();
+  if (clean === "yes" || clean === "y" || clean === "ya" || clean === "true" || clean === "achieved" || clean === "achieve" || clean === "v" || clean === "1") {
+    return "YES";
+  }
+  return "NO";
+}
+
+function parseOutboundSla(val) {
+  if (!val) return "-";
+  var clean = String(val).toLowerCase().trim();
+  if (clean.indexOf("unachieve") !== -1 || clean.indexOf("not achieve") !== -1 || clean.indexOf("fail") !== -1 || clean.indexOf("late") !== -1 || clean.indexOf("unachieved") !== -1 || clean === "no" || clean === "n") {
+    return "Unachieve";
+  }
+  if (clean.indexOf("achieve") !== -1 || clean.indexOf("success") !== -1 || clean.indexOf("pass") !== -1 || clean.indexOf("on time") !== -1 || clean.indexOf("achieved") !== -1 || clean === "yes" || clean === "y") {
+    return "Achieve";
+  }
+  return val;
+}
+
+function parseFloatVal(val) {
+  if (typeof val === "number") return val;
+  if (typeof val === "string") {
+    var parsed = parseFloat(val.replace(/[^0-9.]/g, ""));
+    return isNaN(parsed) ? 0 : parsed;
+  }
+  return 0;
+}
+
+function extractIdFromUrl(input) {
+  if (!input) return "";
+  var reg = new RegExp("/d/([a-zA-Z0-9-_]+)");
+  var match = input.match(reg);
+  return match ? match[1] : input.trim();
+}
+
+/**
+ * Menyimpan data JSON ke Drive secara aman (Mencegah file kosong akibat eksekusi manual tanpa argumen)
+ */
+function saveToGDrive(folder, filename, dataObject, errors) {
+  if (!errors) errors = [];
+  
+  if (!dataObject || !filename) {
+    console.warn("saveToGDrive dibatalkan untuk menghindari penulisan file kosong.");
+    return;
+  }
+
+  if (!folder) {
+    try {
+      folder = DriveApp.getFolderById(FOLDER_ID);
+    } catch (e) {
+      console.error("Gagal mendapatkan folder GDrive: " + e.message);
+      errors.push("Folder GDrive Access Error (" + filename + "): " + e.message);
+      return;
+    }
+  }
+
+  try {
+    var file = getCacheFile(folder, filename);
+    var contentString = JSON.stringify(dataObject);
+
+    if (file) {
+      file.setContent(contentString);
+      file.setDescription("Terakhir diperbarui pada: " + new Date().toString());
+    } else {
+      folder.createFile(filename, contentString, MimeType.PLAIN_TEXT);
+    }
+  } catch (e) {
+    console.error("Gagal menulis berkas cache " + filename + " ke Drive: " + e.message);
+    errors.push("GDrive Write Error (" + filename + "): " + e.message);
+  }
+}

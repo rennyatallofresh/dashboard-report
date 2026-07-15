@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AlloFresh - Outbound Performance Hub</title>
+  
+  <!-- Tailwind CSS Framework -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js untuk visualisasi data -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght=300;400;500;600;700;800&display=swap');
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f8fafc;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 8px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+  </style>
+</head>
+<body class="bg-[#f8fafc] text-slate-800 min-h-screen flex flex-col antialiased">
+
+  <!-- TOP NAVIGATION BAR -->
+  <header class="bg-white border-b border-slate-200/80 sticky top-0 z-40 backdrop-blur-md bg-white/95">
+    <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="bg-amber-500 text-white p-2 rounded-xl flex items-center justify-center shadow-lg shadow-amber-500/20">
+          <i data-lucide="phone-outgoing" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-extrabold tracking-tight text-slate-900">AlloFresh</h1>
+          <p class="text-[11px] font-semibold text-amber-600 uppercase tracking-wider">Outbound Performance Hub</p>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-4">
+        <div class="hidden md:flex flex-col text-right">
+          <p class="text-xs text-slate-400 font-medium">Terakhir Diperbarui</p>
+          <p id="last-update" class="text-sm font-bold text-slate-700">-</p>
+        </div>
+        
+        <div class="flex space-x-1 bg-slate-100 p-1 rounded-xl">
+          <a href="<?= typeof webAppUrl !== 'undefined' ? webAppUrl : '#' ?>?page=index" class="px-4 py-2 text-xs font-bold rounded-lg transition-all duration-200 text-slate-500 hover:text-slate-800 flex items-center gap-1.5">
+            INBOUND
+          </a>
+          <a href="<?= typeof webAppUrl !== 'undefined' ? webAppUrl : '#' ?>?page=outbound" class="px-4 py-2 text-xs font-bold rounded-lg transition-all duration-200 bg-white text-slate-900 shadow-sm flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+            OUTBOUND
+          </a>
+        </div>
+
+        <button id="btn-refresh" onclick="forceSyncData()" class="bg-amber-500 hover:bg-amber-600 active:scale-95 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-amber-500/15 transition-all">
+          <i id="icon-refresh" data-lucide="refresh-cw" class="w-4 h-4"></i>
+          <span>SYNC NOW</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- LOADING OVERLAY -->
+  <div id="loading-overlay" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex flex-col items-center justify-center z-50 transition-opacity duration-300">
+    <div class="bg-white p-8 rounded-3xl shadow-2xl flex flex-col items-center max-w-sm text-center mx-4 border border-slate-150">
+      <div class="relative w-16 h-16 mb-4">
+        <div class="absolute inset-0 border-4 border-amber-100 rounded-full"></div>
+        <div class="absolute inset-0 border-4 border-amber-500 rounded-full border-t-transparent animate-spin"></div>
+      </div>
+      <h3 class="text-lg font-bold text-slate-800 mb-1">Membaca Outbound Cache</h3>
+      <p class="text-xs text-slate-500 leading-relaxed">Mengekstraksi statistik panggilan terhubung, efektivitas SLA panggilan, dan remark tim outbound...</p>
+    </div>
+  </div>
+
+  <main class="flex-1 max-w-[1600px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+
+    <!-- ADVANCED FILTER HEADER (Matching image_2a2c20.png) -->
+    <div class="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div class="flex items-center space-x-2 text-slate-800">
+          <i data-lucide="sliders-horizontal" class="w-5 h-5 text-amber-500"></i>
+          <h2 class="text-sm font-extrabold tracking-tight">Advanced Filter</h2>
+        </div>
+        <button onclick="resetAllFilters()" class="text-rose-500 hover:text-rose-600 text-xs font-bold flex items-center gap-1.5 transition-colors">
+          <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+          <span>Reset Semua Filter</span>
+        </button>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div class="space-y-1.5">
+          <label class="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">Rentang Waktu</label>
+          <div class="flex items-center space-x-2">
+            <input type="date" id="filter-date-start" onchange="applyFilters()" class="w-full bg-slate-50 border border-slate-200/80 rounded-xl py-2.5 px-3.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+            <span class="text-xs font-bold text-slate-400">s/d</span>
+            <input type="date" id="filter-date-end" onchange="applyFilters()" class="w-full bg-slate-50 border border-slate-200/80 rounded-xl py-2.5 px-3.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+          </div>
+        </div>
+        <div class="space-y-1.5">
+          <label class="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">Store / Cabang</label>
+          <select id="filter-store" onchange="applyFilters()" class="w-full bg-slate-50 border border-slate-200/80 rounded-xl py-2.5 px-3.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500">
+            <option value="">Semua Store</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4 PRIMARY KPI CARDS ROW (Matching image_2a2c20.png) -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div class="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm flex items-center space-x-4">
+        <div class="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
+          <i data-lucide="phone-call" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <p class="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Total Calls</p>
+          <h2 id="kpi-total-calls" class="text-2xl font-extrabold text-slate-900 mt-1">0</h2>
+        </div>
+      </div>
+      <div class="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm flex items-center space-x-4">
+        <div class="p-3 bg-blue-50 text-blue-600 rounded-xl">
+          <i data-lucide="shield-check" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <p class="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Achieve SLA</p>
+          <h2 id="kpi-achieve-sla" class="text-2xl font-extrabold text-slate-900 mt-1">0</h2>
+        </div>
+      </div>
+      <div class="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm flex items-center space-x-4">
+        <div class="p-3 bg-rose-50 text-rose-500 rounded-xl">
+          <i data-lucide="shield-alert" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <p class="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Unachieve SLA</p>
+          <h2 id="kpi-unachieve-sla" class="text-2xl font-extrabold text-slate-900 mt-1">0</h2>
+        </div>
+      </div>
+      <div class="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm flex items-center space-x-4">
+        <div class="p-3 bg-amber-50 text-amber-500 rounded-xl">
+          <i data-lucide="percent" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <p class="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">SLA Rate</p>
+          <h2 id="kpi-sla-rate" class="text-2xl font-extrabold text-slate-900 mt-1">0%</h2>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECONDARY KPI ROW -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm flex items-center space-x-4">
+        <div class="p-3 bg-teal-50 text-teal-600 rounded-xl">
+          <i data-lucide="user" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <p class="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Top Customer (Call Name)</p>
+          <h2 id="kpi-top-customer" class="text-base font-extrabold text-slate-900 mt-1">-</h2>
+          <p id="kpi-top-customer-count" class="text-[11px] font-semibold text-slate-400 mt-0.5">0 Panggilan</p>
+        </div>
+      </div>
+      <div class="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm flex items-center space-x-4">
+        <div class="p-3 bg-purple-50 text-purple-600 rounded-xl">
+          <i data-lucide="activity" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <p class="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Top Final Status</p>
+          <h2 id="kpi-top-status" class="text-base font-extrabold text-slate-900 mt-1">-</h2>
+          <p id="kpi-top-status-count" class="text-[11px] font-semibold text-slate-400 mt-0.5">0 Kasus</p>
+        </div>
+      </div>
+      <div class="bg-white p-5 rounded-2xl border border-slate-200/60 shadow-sm flex items-center space-x-4">
+        <div class="p-3 bg-slate-50 text-slate-500 rounded-xl">
+          <i data-lucide="message-square" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <p class="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Top Remark Note</p>
+          <h2 id="kpi-top-remark" class="text-base font-extrabold text-slate-900 mt-1 truncate max-w-[250px]">-</h2>
+          <p id="kpi-top-remark-count" class="text-[11px] font-semibold text-slate-400 mt-0.5">0 Catatan Agen</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- DISTRIBUTION CHART CONTAINER -->
+    <div class="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm space-y-4">
+      <h3 class="text-sm font-extrabold text-slate-900 flex items-center gap-2">
+        <i data-lucide="pie-chart" class="w-4.5 h-4.5 text-amber-500"></i>
+        Distribusi SLA Status
+      </h3>
+      <div class="h-80 relative flex items-center justify-center">
+        <canvas id="chart-sla-distribution"></canvas>
+      </div>
+    </div>
+
+    <!-- MAIN TICKETS DATA TABLE -->
+    <div class="bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
+      <div class="p-6 border-b border-slate-100 flex flex-col md:flex-row gap-4 md:items-center justify-between">
+        <div class="space-y-1">
+          <h3 class="text-sm font-extrabold text-slate-900 flex items-center gap-2">
+            <i data-lucide="list" class="w-4 h-4 text-amber-500"></i>
+            Daftar Riwayat Panggilan (Outbound)
+          </h3>
+          <p class="text-xs text-slate-400 font-medium">Menampilkan riwayat rincian telekomunikasi keluar oleh tim CS</p>
+        </div>
+        
+        <div class="flex items-center space-x-3">
+          <div class="relative min-w-[280px]">
+            <i data-lucide="search" class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"></i>
+            <input type="text" id="filter-search" oninput="applyFilters()" placeholder="Cari Ticket ID, Isu, SKU..." class="w-full bg-slate-50 border border-slate-200/80 rounded-xl py-2 pl-10 pr-4 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all">
+          </div>
+          <span id="data-count" class="bg-amber-50 text-amber-700 text-xs font-bold px-3 py-1.5 rounded-full">0 Calls</span>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="bg-slate-50 border-b border-slate-100 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
+              <th class="p-4 pl-6">No. Call ID</th>
+              <th class="p-4">Tanggal</th>
+              <th class="p-4">Nama Pelanggan</th>
+              <th class="p-4">Hasil Panggilan</th>
+              <th class="p-4">Remark</th>
+              <th class="p-4">Agent</th>
+              <th class="p-4 text-center">SLA Status</th>
+              <th class="p-4 pr-6 text-center">Opsi</th>
+            </tr>
+          </thead>
+          <tbody id="table-body" class="divide-y divide-slate-100 text-xs font-semibold text-slate-700">
+            <!-- Data loaded dynamically -->
+          </tbody>
+        </table>
+      </div>
+
+      <div class="p-4 bg-slate-50/50 border-t border-slate-100 flex justify-between items-center text-xs text-slate-500 font-medium">
+        <p>Klik tombol Opsi untuk meninjau log detail operasional panggilan.</p>
+        <p id="table-pagination-info"></p>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- DYNAMIC TICKET DETAIL MODAL -->
+  <div id="detail-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 opacity-0 pointer-events-none transition-all duration-300">
+    <div class="bg-white rounded-3xl shadow-2xl max-w-2xl w-full mx-4 overflow-hidden border border-slate-100 animate-in fade-in zoom-in duration-200">
+      <div class="p-6 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+        <div class="flex items-center space-x-3">
+          <div class="p-2.5 bg-amber-500 text-white rounded-xl">
+            <i data-lucide="phone-call" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-slate-900" id="modal-title">Detail Outbound Call</h3>
+            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider" id="modal-subtitle">Sumber Cabang</p>
+          </div>
+        </div>
+        <button onclick="closeModal()" class="p-1.5 hover:bg-slate-200 rounded-lg transition-colors text-slate-400 hover:text-slate-700">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      
+      <div id="modal-content-body" class="p-6 max-h-[70vh] overflow-y-auto space-y-6">
+        <!-- Terisi secara dinamis -->
+      </div>
+
+      <div class="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+        <button onclick="closeModal()" class="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-all">
+          TUTUP DETAIL
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- NOTIFICATION TOAST -->
+  <div id="toast" class="fixed bottom-6 right-6 z-50 transform translate-y-20 opacity-0 transition-all duration-300 max-w-sm">
+    <div class="bg-slate-950 text-white px-5 py-4 rounded-2xl shadow-xl border border-white/10 flex items-start space-x-3">
+      <div class="bg-amber-500 p-1.5 rounded-lg text-white mt-0.5" id="toast-icon-container">
+        <i data-lucide="check" class="w-4 h-4" id="toast-icon"></i>
+      </div>
+      <div>
+        <h4 class="text-sm font-bold" id="toast-title">Notification</h4>
+        <p class="text-xs text-slate-300 mt-1 leading-relaxed" id="toast-message">Success message.</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    var globalOutboundData = [];
+    var filteredOutbound = [];
+    var chartSlaDistributionInstance = null;
+
+    window.onload = function() {
+      lucide.createIcons();
+      fetchDashboardData(false);
+    }
+
+    function fetchDashboardData(forceRefresh) {
+      showLoading(true);
+      
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler(function(response) {
+            if (response && response.status === "success") {
+              globalOutboundData = response.data.outbound || [];
+              document.getElementById("last-update").innerText = response.lastUpdatedText || "-";
+              
+              var isCacheStr = response.isCached ? "Drive Cache (Outbound)" : "Live GSheets";
+              showToast("Outbound Tersinkron", "Berhasil mengonsumsi data dari " + isCacheStr, "check");
+              
+              if (response.errors && response.errors.length > 0) {
+                setTimeout(function() {
+                  showToast("Beberapa Sheet Gagal Sync", "Ada " + response.errors.length + " kegagalan akses data sheet.", "alert-triangle");
+                }, 2000);
+              }
+
+              setupFilterDropdowns();
+              applyFilters();
+            } else {
+              showToast("Sinkronisasi Gagal", response.message || "Gagal memproses data", "x-circle");
+            }
+            showLoading(false);
+            resetRefreshButton();
+          })
+          .withFailureHandler(function(error) {
+            showToast("Koneksi Putus", error.message || "Error server", "x-circle");
+            showLoading(false);
+            resetRefreshButton();
+          })
+          .getInternalData(forceRefresh);
+      } else {
+        simulateLocalOutbound();
+        resetRefreshButton();
+      }
+    }
+
+    function forceSyncData() {
+      var btn = document.getElementById("btn-refresh");
+      btn.disabled = true;
+      btn.classList.add("opacity-50");
+      document.getElementById("icon-refresh").classList.add("animate-spin");
+      fetchDashboardData(true);
+    }
+
+    function resetRefreshButton() {
+      var btn = document.getElementById("btn-refresh");
+      var icon = document.getElementById("icon-refresh");
+      if (btn) {
+        btn.disabled = false;
+        btn.classList.remove("opacity-50");
+      }
+      if (icon) {
+        icon.classList.remove("animate-spin");
+      }
+    }
+
+    function setupFilterDropdowns() {
+      var storeDropdown = document.getElementById("filter-store");
+      var storeSet = new Set();
+
+      globalOutboundData.forEach(function(row) {
+        if (row._store) storeSet.add(row._store);
+      });
+
+      storeDropdown.innerHTML = '<option value="">Semua Store</option>';
+      Array.from(storeSet).sort().forEach(function(st) {
+        storeDropdown.innerHTML += '<option value="' + st + '">' + st + '</option>';
+      });
+    }
+
+    function resetAllFilters() {
+      document.getElementById("filter-date-start").value = "";
+      document.getElementById("filter-date-end").value = "";
+      document.getElementById("filter-store").value = "";
+      document.getElementById("filter-search").value = "";
+      
+      applyFilters();
+      showToast("Filter Direset", "Semua saringan saringan pencarian dibersihkan.", "rotate-ccw");
+    }
+
+    function applyFilters() {
+      var dateStart = document.getElementById("filter-date-start").value;
+      var dateEnd = document.getElementById("filter-date-end").value;
+      var selectedStore = document.getElementById("filter-store").value;
+      var searchKeyword = document.getElementById("filter-search").value.toLowerCase();
+
+      filteredOutbound = globalOutboundData.filter(function(row) {
+        var matchDate = true;
+        if (dateStart && row._date) {
+          matchDate = matchDate && (row._date >= dateStart);
+        }
+        if (dateEnd && row._date) {
+          matchDate = matchDate && (row._date <= dateEnd);
+        }
+
+        var matchStore = !selectedStore || row._store === selectedStore;
+
+        var matchSearch = !searchKeyword || 
+          String(row._ticketNumber).toLowerCase().indexOf(searchKeyword) !== -1 ||
+          String(row._agentName).toLowerCase().indexOf(searchKeyword) !== -1 ||
+          String(row._store).toLowerCase().indexOf(searchKeyword) !== -1 ||
+          String(row._callName).toLowerCase().indexOf(searchKeyword) !== -1 ||
+          String(row._remark).toLowerCase().indexOf(searchKeyword) !== -1;
+
+        return matchDate && matchStore && matchSearch;
+      });
+
+      renderDashboard();
+    }
+
+    function renderDashboard() {
+      var data = filteredOutbound;
+      document.getElementById("data-count").innerText = data.length + " Calls";
+
+      var totalCalls = data.length;
+      var achieveSla = 0;
+      var unachieveSla = 0;
+
+      var customerMap = {};
+      var statusMap = {};
+      var remarkMap = {};
+
+      data.forEach(function(row) {
+        var isAchieve = parseOutboundSla(row._achieveSla);
+        if (isAchieve === "Achieve") {
+          achieveSla++;
+        } else if (isAchieve === "Unachieve") {
+          unachieveSla++;
+        }
+
+        if (row._callName) {
+          customerMap[row._callName] = (customerMap[row._callName] || 0) + 1;
+        }
+        if (row._finalStatus) {
+          statusMap[row._finalStatus] = (statusMap[row._finalStatus] || 0) + 1;
+        }
+        if (row._remark) {
+          remarkMap[row._remark] = (remarkMap[row._remark] || 0) + 1;
+        }
+      });
+
+      var slaRate = totalCalls > 0 ? Math.round((achieveSla / totalCalls) * 100) : 0;
+
+      document.getElementById("kpi-total-calls").innerText = totalCalls.toLocaleString();
+      document.getElementById("kpi-achieve-sla").innerText = achieveSla.toLocaleString();
+      document.getElementById("kpi-unachieve-sla").innerText = unachieveSla.toLocaleString();
+      document.getElementById("kpi-sla-rate").innerText = slaRate + "%";
+
+      var topCustomer = "-";
+      var topCustomerCount = 0;
+      var sortedCustomers = Object.entries(customerMap).sort(function(a, b) { return b[1] - a[1]; });
+      if (sortedCustomers.length > 0) {
+        topCustomer = sortedCustomers[0][0];
+        topCustomerCount = sortedCustomers[0][1];
+      }
+
+      var topStatus = "-";
+      var topStatusCount = 0;
+      var sortedStatuses = Object.entries(statusMap).sort(function(a, b) { return b[1] - a[1]; });
+      if (sortedStatuses.length > 0) {
+        topStatus = sortedStatuses[0][0];
+        topStatusCount = sortedStatuses[0][1];
+      }
+
+      var topRemark = "-";
+      var topRemarkCount = 0;
+      var sortedRemarks = Object.entries(remarkMap).sort(function(a, b) { return b[1] - a[1]; });
+      if (sortedRemarks.length > 0) {
+        topRemark = sortedRemarks[0][0];
+        topRemarkCount = sortedRemarks[0][1];
+      }
+
+      document.getElementById("kpi-top-customer").innerText = topCustomer;
+      document.getElementById("kpi-top-customer-count").innerText = topCustomerCount + " Panggilan";
+      document.getElementById("kpi-top-status").innerText = topStatus;
+      document.getElementById("kpi-top-status-count").innerText = topStatusCount + " Kasus";
+      document.getElementById("kpi-top-remark").innerText = topRemark;
+      document.getElementById("kpi-top-remark-count").innerText = topRemarkCount + " Catatan Agen";
+
+      var tbody = document.getElementById("table-body");
+      tbody.innerHTML = "";
+      var displayData = data.slice(0, 100);
+
+      if (displayData.length === 0) {
+        tbody.innerHTML = "<tr><td colspan='8' class='p-8 text-center text-slate-400 font-bold'>Tidak ada data yang cocok dengan penyaringan Anda.</td></tr>";
+      } else {
+        displayData.forEach(function(row, index) {
+          var isAchieve = parseOutboundSla(row._achieveSla);
+          var slaColor = "bg-slate-50 text-slate-500 border border-slate-100";
+          if (isAchieve === "Achieve") {
+            slaColor = "bg-emerald-50 text-emerald-700 border border-emerald-100";
+          } else if (isAchieve === "Unachieve") {
+            slaColor = "bg-rose-50 text-rose-700 border border-rose-100";
+          }
+
+          tbody.innerHTML += 
+            '<tr class="hover:bg-slate-50/80 transition-colors border-b border-slate-50 font-semibold">' +
+              '<td class="p-4 pl-6 text-slate-900 font-extrabold">' + (row._ticketNumber || '-') + '</td>' +
+              '<td class="p-4 text-slate-500">' + (row._date || '-') + '</td>' +
+              '<td class="p-4 text-slate-800">' + (row._callName || '-') + '</td>' +
+              '<td class="p-4 text-indigo-600">' + (row._finalStatus || '-') + '</td>' +
+              '<td class="p-4 text-slate-500 max-w-[200px] truncate">' + (row._remark || '-') + '</td>' +
+              '<td class="p-4 font-extrabold text-slate-800">' + (row._agentName || '-') + '</td>' +
+              '<td class="p-4 text-center">' +
+                '<span class="px-2.5 py-1 rounded-full text-[10px] font-extrabold tracking-wide uppercase ' + slaColor + '">' + (isAchieve || '-') + '</span>' +
+              '</td>' +
+              '<td class="p-4 pr-6 text-center">' +
+                '<button onclick="openOutboundModal(' + index + ')" class="p-1.5 hover:bg-amber-50 hover:text-amber-600 text-slate-400 rounded-lg transition-colors">' +
+                  '<i data-lucide="eye" class="w-4.5 h-4.5"></i>' +
+                '</button>' +
+              '</td>' +
+            '</tr>';
+        });
+      }
+
+      lucide.createIcons();
+      renderVisuals(achieveSla, unachieveSla);
+    }
+
+    function renderVisuals(achieveSla, unachieveSla) {
+      if (chartSlaDistributionInstance) chartSlaDistributionInstance.destroy();
+
+      var ctx = document.getElementById("chart-sla-distribution").getContext("2d");
+      chartSlaDistributionInstance = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['Achieve SLA', 'Unachieve SLA'],
+          datasets: [{
+            data: [achieveSla, unachieveSla],
+            backgroundColor: ['#10b981', '#f43f5e'],
+            borderWidth: 2,
+            hoverOffset: 4
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: { boxWidth: 10, font: { size: 10, weight: '600' } }
+            }
+          },
+          cutout: '70%'
+        }
+      });
+    }
+
+    function openOutboundModal(index) {
+      var row = filteredOutbound[index];
+      if (!row) return;
+
+      document.getElementById("modal-title").innerText = row._ticketNumber || "Detail Outbound Call";
+      document.getElementById("modal-subtitle").innerText = "SUMBER DATA: " + (row._source || "-");
+
+      var body = document.getElementById("modal-content-body");
+      body.innerHTML = 
+        '<div class="grid grid-cols-2 gap-6 border-b border-slate-100 pb-6">' +
+          '<div>' +
+            '<p class="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">Nama Customer</p>' +
+            '<p class="text-sm font-bold text-slate-900">' + (row._callName || '-') + '</p>' +
+          '</div>' +
+          '<div>' +
+            '<p class="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">Tanggal Hubung</p>' +
+            '<p class="text-sm font-bold text-slate-700">' + (row._date || '-') + '</p>' +
+          '</div>' +
+        '</div>' +
+        '<div class="grid grid-cols-3 gap-6 border-b border-slate-100 pb-6">' +
+          '<div>' +
+            '<p class="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">Nama Agent</p>' +
+            '<p class="text-sm font-bold text-slate-900">' + (row._agentName || '-') + '</p>' +
+          '</div>' +
+          '<div>' +
+            '<p class="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">Store Cabang</p>' +
+            '<p class="text-sm font-bold text-slate-700">' + (row._store || '-') + '</p>' +
+          '</div>' +
+          '<div>' +
+            '<p class="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">SLA Status</p>' +
+            '<p class="text-sm font-bold text-indigo-600">' + (parseOutboundSla(row._achieveSla) || '-') + '</p>' +
+          '</div>' +
+        '</div>' +
+        '<div class="grid grid-cols-1 gap-4 border-b border-slate-100 pb-6">' +
+          '<div>' +
+            '<p class="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">Status Akhir Telepon / Hasil Panggilan</p>' +
+            '<span class="inline-block mt-1 px-3 py-1 bg-amber-50 border border-amber-100 rounded-lg text-xs font-bold text-amber-700">' + (row._finalStatus || '-') + '</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="space-y-3">' +
+          '<div>' +
+            '<p class="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">Catatan / Remark Agen</p>' +
+            '<p class="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100 leading-relaxed">' + (row._remark || '-') + '</p>' +
+          '</div>' +
+        '</div>';
+
+      toggleModalVisibility(true);
+    }
+
+    function toggleModalVisibility(isOpen) {
+      var modal = document.getElementById("detail-modal");
+      if (isOpen) {
+        modal.classList.remove("opacity-0", "pointer-events-none");
+      } else {
+        modal.classList.add("opacity-0", "pointer-events-none");
+      }
+    }
+
+    function closeModal() {
+      toggleModalVisibility(false);
+    }
+
+    function showLoading(isVisible) {
+      var overlay = document.getElementById("loading-overlay");
+      if (isVisible) {
+        overlay.classList.remove("opacity-0", "pointer-events-none");
+      } else {
+        overlay.classList.add("opacity-0", "pointer-events-none");
+        var btn = document.getElementById("btn-refresh");
+        btn.disabled = false;
+        btn.classList.remove("opacity-50");
+        document.getElementById("icon-refresh").classList.remove("animate-spin");
+      }
+    }
+
+    function showToast(title, message, iconName) {
+      var toast = document.getElementById("toast");
+      document.getElementById("toast-title").innerText = title;
+      document.getElementById("toast-message").innerText = message;
+      
+      var iconEl = document.getElementById("toast-icon");
+      iconEl.setAttribute("data-lucide", iconName);
+      lucide.createIcons();
+
+      toast.classList.remove("translate-y-20", "opacity-0");
+      setTimeout(function() {
+        toast.classList.add("translate-y-20", "opacity-0");
+      }, 4000);
+    }
+
+    function parseOutboundSla(val) {
+      if (!val) return "-";
+      var clean = String(val).toLowerCase().trim();
+      if (clean.indexOf("unachieve") !== -1 || clean.indexOf("not achieve") !== -1 || clean.indexOf("fail") !== -1 || clean.indexOf("late") !== -1 || clean.indexOf("unachieved") !== -1 || clean === "no" || clean === "n") {
+        return "Unachieve";
+      }
+      if (clean.indexOf("achieve") !== -1 || clean.indexOf("success") !== -1 || clean.indexOf("pass") !== -1 || clean.indexOf("on time") !== -1 || clean.indexOf("achieved") !== -1 || clean === "yes" || clean === "y") {
+        return "Achieve";
+      }
+      return val;
+    }
+
+    function simulateLocalOutbound() {
+      console.warn("Menggunakan dataset simulasi lokal.");
+      globalOutboundData = [
+        { _source: "Cabang Surabaya", _ticketNumber: "CALL-221", _date: "2026-07-12", _store: "AlloFresh Dharmahusada", _agentName: "Rudi Hartono", _callName: "Budi Santoso", _finalStatus: "Terhubung - Sukses", _achieveSla: "Achieve", _remark: "Konfirmasi pesanan pengganti buah mangga yang tidak segar disetujui." },
+        { _source: "Cabang Jakarta", _ticketNumber: "CALL-222", _date: "2026-07-12", _store: "AlloFresh Sudirman", _agentName: "Siti Rahma", _callName: "Iwan Fals", _finalStatus: "No Answer", _achieveSla: "Unachieve", _remark: "Telepon tidak diangkat setelah 3 kali mencoba menghubungi." },
+        { _source: "Cabang Jakarta", _ticketNumber: "CALL-223", _date: "2026-07-13", _store: "AlloFresh Sudirman", _agentName: "Siti Rahma", _callName: "Budi Santoso", _finalStatus: "Terhubung - Sukses", _achieveSla: "Achieve", _remark: "Konfirmasi pesanan pengganti buah mangga yang tidak segar disetujui." }
+      ];
+      document.getElementById("last-update").innerText = "Simulasi Offline (Outbound)";
+      setupFilterDropdowns();
+      applyFilters();
+      showLoading(false);
+    }
+  </script>
+</body>
+</html>
