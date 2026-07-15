@@ -236,6 +236,9 @@ export default function Page() {
     const frtRows = filteredInbound.filter((row) => Number(row._frtAgent) > 0);
     const csatRows = filteredInbound.filter((row) => Number(row._rating) > 0);
     const sla = filteredInbound.filter((row) => row._frtSla === "YES").length;
+    const pickerErrors = topEntries(countBy(filteredInbound.filter((row) => row._humanError === "YES"), "_picker"));
+    const packerErrors = topEntries(countBy(filteredInbound.filter((row) => row._humanError === "YES"), "_packer"));
+
     return {
       total,
       avgFrt: frtRows.length ? frtRows.reduce((s, row) => s + Number(row._frtAgent), 0) / frtRows.length : 0,
@@ -245,8 +248,9 @@ export default function Page() {
       topStores: topEntries(countBy(filteredInbound, "_store")),
       topCategories: topEntries(countBy(filteredInbound, "_category")),
       trend: Object.entries(countBy(filteredInbound, "_date")).sort((a, b) => a[0].localeCompare(b[0])) as [string, number][],
-      pickerErrors: topEntries(countBy(filteredInbound.filter((row) => row._humanError === "YES"), "_picker")),
-      packerErrors: topEntries(countBy(filteredInbound.filter((row) => row._humanError === "YES"), "_packer"))
+      pickerErrors: pickerErrors.length ? pickerErrors : topEntries(countBy(filteredInbound, "_picker")),
+      packerErrors: packerErrors.length ? packerErrors : topEntries(countBy(filteredInbound, "_packer")),
+      auditUsesFallback: pickerErrors.length === 0 && packerErrors.length === 0
     };
   }, [filteredInbound]);
 
@@ -374,6 +378,7 @@ export default function Page() {
                   <MiniBars data={inboundStats.topStores} total={inboundStats.total} tone="rose" />
                 </Panel>
                 <Panel title="Audit Picker & Packer" icon={<PackageX size={18} />}>
+                  {inboundStats.auditUsesFallback ? <p className="panel-note">Belum ada baris Human Error = YES; menampilkan ranking picker/packer terisi.</p> : null}
                   <h4>Picker Error</h4>
                   <MiniBars data={inboundStats.pickerErrors} total={Math.max(inboundStats.pickerErrors[0]?.[1] || 0, 1)} tone="rose" />
                   <h4>Packer Error</h4>

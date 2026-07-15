@@ -615,7 +615,20 @@ function processOutboundSources(sources, errors) {
       var colRemark = findColumnIndex(rawHeaders, ["remark", "detailissue", "keterangan", "catatan", "remarks", "remarkagen", "note"]);
       var colAgentName = findColumnIndex(rawHeaders, ["csagent", "namaagent", "agentname", "agent", "petugas", "nama_agent", "cs_agent", "pic"]);
       var colStore = findColumnIndex(rawHeaders, ["store", "cabang", "toko", "site"]);
-      var colAchieveSla = findColumnIndex(rawHeaders, ["sla", "slastatus", "achievesla", "achieved", "statussla", "status_sla"]);
+      var colAchieveSla = findColumnIndexExactOnly(rawHeaders, [
+        "achievesla",
+        "achieve_sla",
+        "achieve sla",
+        "slaachieved",
+        "sla_achieved",
+        "sla achieved",
+        "slastatus",
+        "sla_status",
+        "sla status",
+        "statussla",
+        "status_sla",
+        "status sla"
+      ]);
 
       for (var r = headerRowIdx + 1; r < sheetValues.length; r++) {
         var rowData = sheetValues[r];
@@ -697,6 +710,21 @@ function findColumnIndex(headers, keys) {
   return -1;
 }
 
+function findColumnIndexExactOnly(headers, keys) {
+  var cleanHeaders = headers.map(function(h) {
+    return h ? h.toString().toLowerCase().replace(/[^a-z0-9]/g, "") : "";
+  });
+
+  for (var k = 0; k < keys.length; k++) {
+    var key = keys[k].toLowerCase().replace(/[^a-z0-9]/g, "");
+    var matchIdx = cleanHeaders.indexOf(key);
+    if (matchIdx !== -1) {
+      return matchIdx;
+    }
+  }
+  return -1;
+}
+
 /**
  * Parsing Durasi GSheet menjadi Satuan Menit secara Presisi
  */
@@ -748,7 +776,7 @@ function parseOutboundSla(val) {
   if (clean.indexOf("achieve") !== -1 || clean.indexOf("success") !== -1 || clean.indexOf("pass") !== -1 || clean.indexOf("on time") !== -1 || clean.indexOf("achieved") !== -1 || clean === "yes" || clean === "y") {
     return "Achieve";
   }
-  return val;
+  return "-";
 }
 
 function parseFloatVal(val) {

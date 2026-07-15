@@ -260,6 +260,17 @@ input:focus, select:focus { border-color: #10b981; box-shadow: 0 0 0 3px rgba(16
   text-transform: uppercase;
   letter-spacing: .06em;
 }
+.panel-note {
+  margin: -4px 0 12px;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.45;
+}
 
 .trend {
   height: 260px;
